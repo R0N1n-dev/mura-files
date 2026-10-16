@@ -2,7 +2,11 @@ module github.com/R0N1n-dev/mura-files
 
 go 1.25.0
 
-require github.com/wailsapp/wails/v3 v3.0.0-beta.29
+require (
+	github.com/fsnotify/fsnotify v1.10.1
+	github.com/wailsapp/wails/v3 v3.0.0-beta.29
+	golang.org/x/image v0.41.0
+)
 
 require (
 	github.com/adrg/xdg v0.5.3 // indirect
