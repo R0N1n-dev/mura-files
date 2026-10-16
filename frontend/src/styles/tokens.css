@@ -1,0 +1,137 @@
+/* -------------------------------------------------------------------------
+   Mura Files design tokens
+
+   Two themes share one set of semantic variables. The dark theme is the
+   default because a file manager is usually a companion to a dark editor,
+   but the light theme is a first class citizen rather than an afterthought.
+   ------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: dark;
+
+  /* Accent - a calm periwinkle that reads as "considered" rather than loud. */
+  --accent: #7c8cff;
+  --accent-strong: #96a3ff;
+  --accent-contrast: #ffffff;
+  --accent-soft: rgba(124, 140, 255, 0.16);
+  --accent-softer: rgba(124, 140, 255, 0.09);
+
+  /* Semantic colours */
+  --danger: #ff6b6b;
+  --danger-soft: rgba(255, 107, 107, 0.14);
+  --warning: #ffb454;
+  --warning-soft: rgba(255, 180, 84, 0.14);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.14);
+  --info: #62d0ff;
+  --info-soft: rgba(98, 208, 255, 0.14);
+
+  /* Radii */
+  --r-xs: 4px;
+  --r-sm: 7px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* Spacing scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 28px;
+
+  /* Typography */
+  --font-ui: "Inter", "Cantarell", "Ubuntu", "Segoe UI", "Noto Sans",
+    system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SF Mono", "DejaVu Sans Mono",
+    ui-monospace, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 19px;
+  --fs-2xl: 26px;
+
+  /* Motion - quick and unobtrusive. */
+  --t-fast: 110ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t-base: 170ms cubic-bezier(0.4, 0, 0.2, 1);
+  --t-slow: 260ms cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Layout */
+  --titlebar-h: 42px;
+  --tabbar-h: 36px;
+  --toolbar-h: 48px;
+  --statusbar-h: 26px;
+  --row-h: 32px;
+}
+
+/* ---------------------------------- Dark --------------------------------- */
+.theme-dark,
+:root:not(.theme-light) {
+  color-scheme: dark;
+  --bg: #131419;
+  --bg-deep: #0f1014;
+  --surface: #191b21;
+  --surface-2: #1f222a;
+  --surface-3: #262a33;
+  --elevated: #23262e;
+  --overlay: rgba(9, 10, 13, 0.62);
+
+  --text: #e9ebf2;
+  --text-muted: #99a0b0;
+  --text-faint: #6a7182;
+  --text-inverse: #14161b;
+
+  --border: rgba(255, 255, 255, 0.068);
+  --border-strong: rgba(255, 255, 255, 0.125);
+  --hover: rgba(255, 255, 255, 0.045);
+  --active: rgba(255, 255, 255, 0.085);
+  --selection: rgba(124, 140, 255, 0.24);
+  --selection-hover: rgba(124, 140, 255, 0.3);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 4px 16px rgba(0, 0, 0, 0.42);
+  --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --titlebar-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
+}
+
+/* --------------------------------- Light --------------------------------- */
+.theme-light {
+  color-scheme: light;
+  --bg: #f4f5f8;
+  --bg-deep: #eceef2;
+  --surface: #ffffff;
+  --surface-2: #f6f7f9;
+  --surface-3: #eceef2;
+  --elevated: #ffffff;
+  --overlay: rgba(30, 33, 40, 0.28);
+
+  --text: #1b1e25;
+  --text-muted: #5b6272;
+  --text-faint: #8b93a3;
+  --text-inverse: #ffffff;
+
+  --border: rgba(16, 20, 30, 0.085);
+  --border-strong: rgba(16, 20, 30, 0.16);
+  --hover: rgba(16, 20, 30, 0.045);
+  --active: rgba(16, 20, 30, 0.08);
+  --selection: rgba(124, 140, 255, 0.2);
+  --selection-hover: rgba(124, 140, 255, 0.26);
+
+  --shadow-1: 0 1px 2px rgba(16, 20, 30, 0.08);
+  --shadow-2: 0 4px 16px rgba(16, 20, 30, 0.1);
+  --shadow-3: 0 18px 48px rgba(16, 20, 30, 0.16), 0 2px 8px rgba(16, 20, 30, 0.08);
+  --titlebar-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0));
+}
+
+/* Accent overrides picked from the settings panel. */
+.accent-indigo { --accent: #7c8cff; --accent-strong: #96a3ff; --accent-soft: rgba(124, 140, 255, 0.16); }
+.accent-violet { --accent: #a78bfa; --accent-strong: #c4b5fd; --accent-soft: rgba(167, 139, 250, 0.16); }
+.accent-teal   { --accent: #2dd4bf; --accent-strong: #5eead4; --accent-soft: rgba(45, 212, 191, 0.16); }
+.accent-rose   { --accent: #fb7185; --accent-strong: #fda4af; --accent-soft: rgba(251, 113, 133, 0.16); }
+.accent-amber  { --accent: #fbbf24; --accent-strong: #fcd34d; --accent-soft: rgba(251, 191, 36, 0.16); }
+.accent-emerald{ --accent: #34d399; --accent-strong: #6ee7b7; --accent-soft: rgba(52, 211, 153, 0.16); }
+.accent-sky    { --accent: #38bdf8; --accent-strong: #7dd3fc; --accent-soft: rgba(56, 189, 248, 0.16); }
+.accent-slate  { --accent: #94a3b8; --accent-strong: #cbd5e1; --accent-soft: rgba(148, 163, 184, 0.16); }

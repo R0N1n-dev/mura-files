@@ -48,6 +48,10 @@ type Result struct {
 // ErrCancelled is returned when the context is cancelled mid operation.
 var ErrCancelled = errors.New("operation cancelled")
 
+// ErrExists is returned when a destination already exists and neither
+// overwriting nor renaming on conflict was requested.
+var ErrExists = errors.New("destination already exists")
+
 func checkCancel(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -168,9 +172,11 @@ func CopyTree(ctx context.Context, src, dst string, opts Options, progress Progr
 
 	default:
 		if _, err := os.Lstat(dst); err == nil && !opts.Overwrite {
-			if opts.RenameOnConflict {
-				dst = filepath.Join(filepath.Dir(dst), fsx.UniqueName(filepath.Dir(dst), filepath.Base(dst)))
+			if !opts.RenameOnConflict {
+				return ErrExists
 			}
+			dir := filepath.Dir(dst)
+			dst = filepath.Join(dir, fsx.UniqueName(dir, filepath.Base(dst)))
 		}
 		n, err := CopyFile(src, dst, info, opts)
 		if err != nil {

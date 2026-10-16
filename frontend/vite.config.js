@@ -9,5 +9,10 @@ export default defineConfig({
     port: Number(process.env.WAILS_VITE_PORT) || 9245,
     strictPort: true,
   },
+  build: {
+    // The webview is a modern WebKit, so we can target recent syntax.
+    target: "es2022",
+    chunkSizeWarningLimit: 1500,
+  },
   plugins: [vue(), wails("./bindings")],
 });

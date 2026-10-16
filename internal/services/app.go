@@ -18,7 +18,6 @@ import (
 type AppService struct {
 	rt      *Runtime
 	version string
-	main    *application.WebviewWindow
 }
 
 // NewAppService creates the service.
@@ -28,9 +27,6 @@ func NewAppService(rt *Runtime, version string) *AppService {
 
 // ServiceName identifies the service in logs and bindings.
 func (s *AppService) ServiceName() string { return "App" }
-
-// SetMainWindow records the main window so window controls can target it.
-func (s *AppService) SetMainWindow(w *application.WebviewWindow) { s.main = w }
 
 // Info returns the system description shown at boot and in the about dialog.
 func (s *AppService) Info() model.SystemInfo {
@@ -92,14 +88,7 @@ func (s *AppService) ReorderBookmarks(paths []string) []model.Bookmark {
 
 // RenameBookmark changes the label of a saved location.
 func (s *AppService) RenameBookmark(path, name string) []model.Bookmark {
-	list := s.rt.Config.Bookmarks()
-	target := fsx.Abs(path)
-	for i := range list {
-		if list[i].Path == target {
-			list[i].Name = name
-		}
-	}
-	return s.rt.Config.SetBookmarks(list)
+	return s.rt.Config.RenameBookmark(fsx.Abs(path), name)
 }
 
 // ---------------------------------------------------------------------------
@@ -235,8 +224,8 @@ func (s *AppService) ChooseFolder(title, start string) (string, error) {
 	if start != "" {
 		dialog.SetDirectory(fsx.Abs(start))
 	}
-	if s.main != nil {
-		dialog.AttachToWindow(s.main)
+	if s.rt.MainWindow() != nil {
+		dialog.AttachToWindow(s.rt.MainWindow())
 	}
 	return dialog.PromptForSingleSelection()
 }
@@ -255,8 +244,8 @@ func (s *AppService) ChooseFiles(title, start string, multiple bool) ([]string, 
 	if start != "" {
 		dialog.SetDirectory(fsx.Abs(start))
 	}
-	if s.main != nil {
-		dialog.AttachToWindow(s.main)
+	if s.rt.MainWindow() != nil {
+		dialog.AttachToWindow(s.rt.MainWindow())
 	}
 	if multiple {
 		return dialog.PromptForMultipleSelection()
@@ -283,8 +272,8 @@ func (s *AppService) ChooseSaveFile(title, start, filename string) (string, erro
 	if filename != "" {
 		dialog.SetFilename(filename)
 	}
-	if s.main != nil {
-		dialog.AttachToWindow(s.main)
+	if s.rt.MainWindow() != nil {
+		dialog.AttachToWindow(s.rt.MainWindow())
 	}
 	return dialog.PromptForSingleSelection()
 }
@@ -308,8 +297,8 @@ func (s *AppService) Message(kind, title, message string) error {
 		dialog = app.Dialog.Info()
 	}
 	dialog.SetTitle(orDefault(title, "Mura Files")).SetMessage(message)
-	if s.main != nil {
-		dialog.AttachToWindow(s.main)
+	if s.rt.MainWindow() != nil {
+		dialog.AttachToWindow(s.rt.MainWindow())
 	}
 	dialog.Show()
 	return nil
@@ -328,14 +317,14 @@ func orDefault(value, fallback string) string {
 
 // WindowState reports the native window state.
 func (s *AppService) WindowState() model.WindowState {
-	if s.main == nil {
+	if s.rt.MainWindow() == nil {
 		return model.WindowState{}
 	}
-	width, height := s.main.Size()
+	width, height := s.rt.MainWindow().Size()
 	return model.WindowState{
-		Maximised:  s.main.IsMaximised(),
-		Fullscreen: s.main.IsFullscreen(),
-		Focused:    s.main.IsFocused(),
+		Maximised:  s.rt.MainWindow().IsMaximised(),
+		Fullscreen: s.rt.MainWindow().IsFullscreen(),
+		Focused:    s.rt.MainWindow().IsFocused(),
 		Width:      width,
 		Height:     height,
 	}
@@ -343,57 +332,57 @@ func (s *AppService) WindowState() model.WindowState {
 
 // Minimise sends the window to the taskbar.
 func (s *AppService) Minimise() {
-	if s.main != nil {
-		s.main.Minimise()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().Minimise()
 	}
 }
 
 // Maximise maximises the window.
 func (s *AppService) Maximise() {
-	if s.main != nil {
-		s.main.Maximise()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().Maximise()
 	}
 }
 
 // UnMaximise restores the window from its maximised state.
 func (s *AppService) UnMaximise() {
-	if s.main != nil {
-		s.main.UnMaximise()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().UnMaximise()
 	}
 }
 
 // ToggleMaximise flips between maximised and restored.
 func (s *AppService) ToggleMaximise() {
-	if s.main != nil {
-		s.main.ToggleMaximise()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().ToggleMaximise()
 	}
 }
 
 // ToggleFullscreen flips the fullscreen state.
 func (s *AppService) ToggleFullscreen() {
-	if s.main != nil {
-		s.main.ToggleFullscreen()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().ToggleFullscreen()
 	}
 }
 
 // CloseWindow closes the main window, quitting the application.
 func (s *AppService) CloseWindow() {
-	if s.main != nil {
-		s.main.Close()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().Close()
 	}
 }
 
 // SetTitle updates the window title to match the active folder.
 func (s *AppService) SetTitle(title string) {
-	if s.main != nil && title != "" {
-		s.main.SetTitle(title)
+	if s.rt.MainWindow() != nil && title != "" {
+		s.rt.MainWindow().SetTitle(title)
 	}
 }
 
 // Show brings the window to the front.
 func (s *AppService) Show() {
-	if s.main != nil {
-		s.main.Show().Focus()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().Show().Focus()
 	}
 }
 
@@ -407,15 +396,15 @@ func (s *AppService) Quit() {
 
 // OpenDevTools opens the web inspector.
 func (s *AppService) OpenDevTools() {
-	if s.main != nil {
-		s.main.OpenDevTools()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().OpenDevTools()
 	}
 }
 
 // Reload reloads the frontend.
 func (s *AppService) Reload() {
-	if s.main != nil {
-		s.main.Reload()
+	if s.rt.MainWindow() != nil {
+		s.rt.MainWindow().Reload()
 	}
 }
 

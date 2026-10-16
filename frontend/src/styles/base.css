@@ -1,0 +1,104 @@
+/* Reset, base elements and utility primitives. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  cursor: default;
+  /* The native frame is hidden, so the whole page is our canvas. */
+  overscroll-behavior: none;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button { background: none; border: 0; padding: 0; cursor: pointer; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+
+::selection { background: var(--selection); }
+
+/* ------------------------------- Scrollbars ------------------------------ */
+
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* --------------------------------- Focus --------------------------------- */
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-xs);
+}
+
+/* ------------------------------- Utilities ------------------------------- */
+
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-muted); }
+.faint { color: var(--text-faint); }
+.tnum { font-variant-numeric: tabular-nums; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* The frameless window needs explicit drag handles. The Wails runtime watches
+   for this custom property and starts a native move drag when it is present. */
+.drag-region { --wails-draggable: drag; }
+.no-drag { --wails-draggable: no-drag; }
+
+/* ------------------------------- Transitions ----------------------------- */
+
+.fade-enter-active, .fade-leave-active { transition: opacity var(--t-base); }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.pop-enter-active { transition: opacity var(--t-fast), transform var(--t-slow); }
+.pop-leave-active { transition: opacity var(--t-fast), transform var(--t-fast); }
+.pop-enter-from { opacity: 0; transform: translateY(4px) scale(0.985); }
+.pop-leave-to { opacity: 0; transform: translateY(2px) scale(0.99); }
+
+.slide-enter-active, .slide-leave-active { transition: transform var(--t-slow), opacity var(--t-base); }
+.slide-enter-from, .slide-leave-to { transform: translateX(12px); opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

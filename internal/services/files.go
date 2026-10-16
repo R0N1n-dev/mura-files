@@ -38,7 +38,27 @@ func (s *FileService) List(path string, opts model.ListOptions) model.DirListing
 	if path == "" || path == "~" {
 		path = places.Home()
 	}
-	return fsx.List(path, opts)
+	listing := fsx.List(path, opts)
+	s.enrich(&listing)
+	return listing
+}
+
+// enrich adds information that requires the desktop integration package and
+// therefore cannot live in the fsx package (which must stay dependency free).
+func (s *FileService) enrich(listing *model.DirListing) {
+	for i := range listing.Entries {
+		entry := &listing.Entries[i]
+		if entry.Ext != ".desktop" || entry.IsDir {
+			continue
+		}
+		name, icon := shell.DesktopMeta(entry.Path)
+		if name != "" {
+			entry.DesktopName = name
+		}
+		if icon != "" {
+			entry.AppIcon = icon
+		}
+	}
 }
 
 // Stat returns metadata for a single path.

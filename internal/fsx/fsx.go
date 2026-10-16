@@ -270,6 +270,16 @@ var mimeKinds = map[string]string{
 	"message/": "text",
 }
 
+// kindFromMime matches a MIME type against the prefix table.
+func kindFromMime(mimeType string) string {
+	for prefix, kind := range mimeKinds {
+		if strings.HasPrefix(mimeType, prefix) {
+			return kind
+		}
+	}
+	return ""
+}
+
 // Kind classifies a path by extension and MIME type.
 func Kind(path string, isDir bool) string {
 	if isDir {
@@ -279,8 +289,12 @@ func Kind(path string, isDir bool) string {
 	if k, ok := extKinds[ext]; ok {
 		return k
 	}
+	// Compound extensions (.tar.gz, .tar.xz, ...) fall back to their suffix.
+	if k, ok := extKinds[Ext(path)]; ok {
+		return k
+	}
 	m := MimeOf(path)
-	if k, ok := mimeKinds[m]; ok {
+	if k := kindFromMime(m); k != "" {
 		return k
 	}
 	if strings.HasSuffix(m, "+zip") || strings.HasSuffix(m, "+gzip") ||

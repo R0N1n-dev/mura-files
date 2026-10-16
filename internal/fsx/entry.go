@@ -214,11 +214,12 @@ func listRecursive(root string, showHidden bool, depth, maxEntries int) ([]model
 			}
 			return nil
 		}
-		if depth > 0 {
-			cur := strings.Count(strings.TrimSuffix(path, "/"), "/") - rootDepth
-			if d.IsDir() && cur >= depth {
+		cur := strings.Count(strings.TrimSuffix(path, "/"), "/") - rootDepth
+		if depth > 0 && cur > depth {
+			if d.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
 		}
 		info, ierr := d.Info()
 		if ierr != nil {
@@ -228,6 +229,10 @@ func listRecursive(root string, showHidden bool, depth, maxEntries int) ([]model
 		if maxEntries > 0 && len(out) >= maxEntries {
 			truncated = true
 			return filepath.SkipAll
+		}
+		// Include the boundary level, but do not descend past it.
+		if depth > 0 && d.IsDir() && cur >= depth {
+			return filepath.SkipDir
 		}
 		return nil
 	})

@@ -130,7 +130,7 @@ func main() {
 		},
 	})
 
-	appService.SetMainWindow(window)
+	rt.SetMainWindow(window)
 
 	// Live folder updates are started from the frontend, so restore the last
 	// used state here.

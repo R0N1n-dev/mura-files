@@ -248,7 +248,11 @@ func Drives() []model.Drive {
 	seen := map[string]bool{}
 	var out []model.Drive
 	for _, m := range readMounts() {
-		if pseudoFilesystems[m.fsType] {
+		// Kernel-internal mounts are hidden, but the root filesystem and
+		// anything the user explicitly plugged in are always shown, even when
+		// they happen to use a normally-internal filesystem type (a live USB
+		// on tmpfs, a container root on overlay, and so on).
+		if pseudoFilesystems[m.fsType] && m.path != "/" && !isRemovableMountPath(m.path) {
 			continue
 		}
 		if seen[m.path] {
@@ -315,8 +319,15 @@ func isSystemMount(path string) bool {
 	return true
 }
 
+// isRemovableMountPath reports whether a mount point is one of the
+// conventional auto-mount locations for removable media.
+func isRemovableMountPath(path string) bool {
+	return strings.HasPrefix(path, "/media/") || strings.HasPrefix(path, "/run/media/") ||
+		strings.HasPrefix(path, "/mnt/")
+}
+
 func isRemovable(m mountRecord) bool {
-	if strings.HasPrefix(m.path, "/media/") || strings.HasPrefix(m.path, "/run/media/") {
+	if isRemovableMountPath(m.path) {
 		return true
 	}
 	switch {

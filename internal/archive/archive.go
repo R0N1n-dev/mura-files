@@ -473,10 +473,20 @@ func extractExternal(ctx context.Context, path, destDir string, progress Progres
 	return nil
 }
 
-// safeJoin joins an archive member path to a destination, refusing entries
+// safeJoin joins an archive member path to a destination, rejecting entries
 // that would escape the destination directory (the "zip slip" attack).
+//
+// Absolute names and names containing a ".." segment are refused outright
+// rather than silently rewritten, so a malicious archive is reported to the
+// user instead of being quietly sanitised.
 func safeJoin(destDir, name string) (string, error) {
-	cleaned := filepath.Clean("/" + strings.ReplaceAll(name, "\\", "/"))
+	normalised := strings.ReplaceAll(name, "\\", "/")
+	for _, segment := range strings.Split(normalised, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("archive entry %q escapes the destination", name)
+		}
+	}
+	cleaned := filepath.Clean("/" + normalised)
 	if cleaned == "/" {
 		return destDir, nil
 	}

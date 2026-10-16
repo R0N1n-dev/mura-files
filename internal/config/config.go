@@ -214,6 +214,17 @@ func (s *Store) RemoveBookmark(path string) []model.Bookmark {
 	return s.SetBookmarks(out)
 }
 
+// RenameBookmark changes the label of a saved location.
+func (s *Store) RenameBookmark(path, name string) []model.Bookmark {
+	list := s.Bookmarks()
+	for i := range list {
+		if list[i].Path == path {
+			list[i].Name = name
+		}
+	}
+	return s.SetBookmarks(list)
+}
+
 // ReorderBookmarks rewrites the ordering from a list of paths.
 func (s *Store) ReorderBookmarks(paths []string) []model.Bookmark {
 	byPath := map[string]model.Bookmark{}

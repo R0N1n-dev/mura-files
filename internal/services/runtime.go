@@ -48,6 +48,8 @@ type Runtime struct {
 
 	// watchEnabled mirrors the user setting so the watcher can be paused.
 	watchEnabled bool
+	// mainWindow is the primary webview window, used by the window controls.
+	mainWindow *application.WebviewWindow
 }
 
 // NewRuntime wires the shared state together.
@@ -75,6 +77,20 @@ func (rt *Runtime) App() *application.App {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 	return rt.app
+}
+
+// SetMainWindow records the primary window so services can drive it.
+func (rt *Runtime) SetMainWindow(w *application.WebviewWindow) {
+	rt.mu.Lock()
+	rt.mainWindow = w
+	rt.mu.Unlock()
+}
+
+// MainWindow returns the primary window, which may be nil before it is created.
+func (rt *Runtime) MainWindow() *application.WebviewWindow {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.mainWindow
 }
 
 // Emit sends a custom event to the frontend.

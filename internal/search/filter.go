@@ -27,6 +27,10 @@ func filepathDir(path string) string {
 }
 
 // accepts applies every filter in the query to a candidate path.
+//
+// When content searching is enabled the pattern may match either the name or
+// the file body, which is what users expect from a "search inside files"
+// switch: you should not have to guess the filename.
 func (m *matcher) accepts(path string, d fs.DirEntry) bool {
 	q := m.query
 	isDir := d.IsDir()
@@ -38,47 +42,62 @@ func (m *matcher) accepts(path string, d fs.DirEntry) bool {
 	} else if !q.IncludeFiles {
 		return false
 	}
-	if !m.matchesName(d.Name()) {
+
+	nameMatches := m.matchesName(d.Name())
+	var info fs.FileInfo
+	var haveInfo bool
+	loadInfo := func() fs.FileInfo {
+		if !haveInfo {
+			info, _ = d.Info()
+			haveInfo = true
+		}
+		return info
+	}
+
+	needsInfo := q.KindFilter != "" || len(q.ExtFilter) > 0 ||
+		q.MinSize > 0 || q.MaxSize > 0 ||
+		q.ModifiedAfter > 0 || q.ModifiedBefore > 0 || q.Content
+	if !needsInfo {
+		return nameMatches
+	}
+
+	fileInfo := loadInfo()
+	if fileInfo == nil {
 		return false
 	}
 
-	// Filters that need stat information.
-	if q.KindFilter != "" || len(q.ExtFilter) > 0 ||
-		q.MinSize > 0 || q.MaxSize > 0 ||
-		q.ModifiedAfter > 0 || q.ModifiedBefore > 0 || q.Content {
-		info, err := d.Info()
-		if err != nil {
+	contentMatches := false
+	if q.Content && !isDir {
+		contentMatches = m.matchesContent(path, fileInfo.Size())
+	}
+	if !nameMatches && !contentMatches {
+		return false
+	}
+
+	if len(q.ExtFilter) > 0 && !isDir {
+		if !containsString(q.ExtFilter, fsx.BaseExt(d.Name())) {
 			return false
 		}
-		if len(q.ExtFilter) > 0 && !isDir {
-			ext := fsx.BaseExt(d.Name())
-			if !containsString(q.ExtFilter, ext) {
-				return false
-			}
-		}
-		if q.KindFilter != "" && !isDir {
-			if fsx.Kind(path, false) != q.KindFilter {
-				return false
-			}
-		}
-		if !isDir {
-			size := info.Size()
-			if q.MinSize > 0 && size < q.MinSize {
-				return false
-			}
-			if q.MaxSize > 0 && size > q.MaxSize {
-				return false
-			}
-		}
-		if q.ModifiedAfter > 0 && info.ModTime().UnixMilli() < q.ModifiedAfter {
+	}
+	if q.KindFilter != "" && !isDir {
+		if fsx.Kind(path, false) != q.KindFilter {
 			return false
 		}
-		if q.ModifiedBefore > 0 && info.ModTime().UnixMilli() > q.ModifiedBefore {
+	}
+	if !isDir {
+		size := fileInfo.Size()
+		if q.MinSize > 0 && size < q.MinSize {
 			return false
 		}
-		if q.Content && !isDir {
-			return m.matchesContent(path, info.Size())
+		if q.MaxSize > 0 && size > q.MaxSize {
+			return false
 		}
+	}
+	if q.ModifiedAfter > 0 && fileInfo.ModTime().UnixMilli() < q.ModifiedAfter {
+		return false
+	}
+	if q.ModifiedBefore > 0 && fileInfo.ModTime().UnixMilli() > q.ModifiedBefore {
+		return false
 	}
 	return true
 }
