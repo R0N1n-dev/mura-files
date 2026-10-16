@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Mura Files
+Comment=A fast, modern file manager for Linux
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/mura-files %u
+Terminal=false
+Type=Application
+Icon=mura-files
+Categories=Utility;
+StartupWMClass=mura-files
+
+ 

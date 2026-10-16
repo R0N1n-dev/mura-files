@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="mura-files"
+        Arguments=""
+        InstallLocation="C:\Program Files\Mura\Mura Files">
+    </Installer>
+    <PackageInformation
+        PackageName="Mura Files"
+        PackageDisplayName="Mura Files"
+        PublisherName="CN=Mura"
+        PublisherDisplayName="Mura"
+        Version="0.1.0.0"
+        PackageDescription="A fast, modern file manager for Linux">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="dev.mura.files"
+                Description="A fast, modern file manager for Linux"
+                DisplayName="Mura Files"
+                ExecutableName="mura-files"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>Mura Files</DisplayName>
+            <PublisherDisplayName>Mura</PublisherDisplayName>
+            <Description>A fast, modern file manager for Linux</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="mura-files.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>
