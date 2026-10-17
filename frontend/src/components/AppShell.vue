@@ -139,6 +139,11 @@ async function onKeydown(event) {
   if (mod && event.shiftKey && event.key.toLowerCase() === 'n') { event.preventDefault(); createFolder(current); return; }
   if (mod && event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); createFile(current); return; }
   if (mod && event.shiftKey && event.key.toLowerCase() === 's') { event.preventDefault(); saveViewDefaults(current); return; }
+  if (mod && event.shiftKey && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    AppService.ToggleFullscreen().catch(() => {});
+    return;
+  }
 
   if (event.altKey && event.key === 'ArrowLeft') { event.preventDefault(); goBack(current); return; }
   if (event.altKey && event.key === 'ArrowRight') { event.preventDefault(); goForward(current); return; }

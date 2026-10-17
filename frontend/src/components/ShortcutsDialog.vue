@@ -28,7 +28,6 @@ const groups = [
       ['Ctrl + A', 'Select everything'],
       ['Ctrl + Shift + A', 'Invert the selection'],
       ['Drag', 'Rubber-band select'],
-      ['Space', 'Preview the focused item'],
     ],
   },
   {
@@ -52,7 +51,8 @@ const groups = [
       ['Ctrl + F', 'Search the current folder'],
       ['Ctrl + P', 'Command palette'],
       ['Ctrl + H', 'Toggle hidden files'],
-      ['F11', 'Toggle the preview pane'],
+      ['F11 / Space', 'Toggle the preview pane'],
+      ['Ctrl + Shift + F', 'Toggle fullscreen'],
       ['Ctrl + ,', 'Settings'],
       ['Ctrl + /', 'This list'],
       ['F12', 'Developer tools'],

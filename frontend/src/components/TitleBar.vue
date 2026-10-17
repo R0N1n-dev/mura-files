@@ -43,7 +43,7 @@ onUnmounted(() => {
 
 <template>
   <header class="titlebar drag-region" @dblclick="onDoubleClick">
-    <div class="brand no-drag">
+    <div class="brand">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="17" height="17">
           <path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2z"

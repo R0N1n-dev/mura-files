@@ -115,6 +115,7 @@ cd frontend && npx vite build --mode production
 | `Ctrl+1/2/3` | List / grid / compact view |
 | `Ctrl+H` | Show hidden files |
 | `F11` or `Space` | Toggle the preview pane |
+| `Ctrl+Shift+F` | Toggle fullscreen |
 | `F2` | Rename |
 | `Enter` | Open the selection |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
