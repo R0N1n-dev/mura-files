@@ -287,8 +287,8 @@ func TestCancel(t *testing.T) {
 
 func TestGlobToRegex(t *testing.T) {
 	cases := map[string]string{
-		"*.txt":    `^.*\.txt$`,
-		"a?c":      `^a.c$`,
+		"*.txt":     `^.*\.txt$`,
+		"a?c":       `^a.c$`,
 		"file.name": `^file\.name$`,
 	}
 	for glob, want := range cases {

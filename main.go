@@ -20,6 +20,7 @@ import (
 	"github.com/R0N1n-dev/mura-files/internal/model"
 	"github.com/R0N1n-dev/mura-files/internal/places"
 	"github.com/R0N1n-dev/mura-files/internal/services"
+	"github.com/R0N1n-dev/mura-files/internal/shell"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -45,6 +46,27 @@ func init() {
 	application.RegisterEvent[services.Notification](services.EventNotify)
 	application.RegisterEvent[string](services.EventOpenPath)
 	application.RegisterEvent[model.ThemeInfo](services.EventTheme)
+}
+
+// singleInstanceOptions enables single instance hand-off, but only when a
+// D-Bus session bus is actually reachable. Wails reports a failure to set up
+// the manager as fatal, and a missing bus must never stop the file manager
+// from starting on a minimal or containerised system.
+func singleInstanceOptions(rt *services.Runtime, appService *services.AppService) *application.SingleInstanceOptions {
+	if !shell.SessionBusAvailable() {
+		return nil
+	}
+	return &application.SingleInstanceOptions{
+		UniqueID: "dev.mura.files",
+		OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+			// Focus the existing window and, when the second launch carried
+			// paths, ask the frontend to reveal them.
+			if len(data.Args) > 0 {
+				rt.Emit(services.EventOpenPath, strings.Join(data.Args, "\n"))
+			}
+			appService.Show()
+		},
+	}
 }
 
 func main() {
@@ -87,15 +109,7 @@ func main() {
 				})
 			},
 		},
-		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "dev.mura.files",
-			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
-				// Focus the existing window and, when the second launch carried
-				// paths, ask the frontend to reveal them.
-				rt.Emit(services.EventOpenPath, strings.Join(data.Args, "\n"))
-				appService.Show()
-			},
-		},
+		SingleInstance: singleInstanceOptions(rt, appService),
 		OnShutdown: func() {
 			rt.Shutdown()
 		},
@@ -114,15 +128,15 @@ func main() {
 		MinWidth:  760,
 		MinHeight: 460,
 		// The interface draws its own titlebar, so the native frame is hidden.
-		Frameless:         true,
-		BackgroundColour:  application.NewRGB(24, 25, 31),
-		URL:               "/",
-		EnableFileDrop:    true,
-		DevToolsEnabled:   true,
+		Frameless:                  true,
+		BackgroundColour:           application.NewRGB(24, 25, 31),
+		URL:                        "/",
+		EnableFileDrop:             true,
+		DevToolsEnabled:            true,
 		DefaultContextMenuDisabled: true,
 		Linux: application.LinuxWindow{
-			Icon:               appIcon,
-			WebviewGpuPolicy:   application.WebviewGpuPolicyOnDemand,
+			Icon:             appIcon,
+			WebviewGpuPolicy: application.WebviewGpuPolicyOnDemand,
 		},
 		Mac: application.MacWindow{
 			TitleBar: application.MacTitleBarHiddenInset,

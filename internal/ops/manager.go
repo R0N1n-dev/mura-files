@@ -73,10 +73,10 @@ func (m *Manager) Start(kind, title string, totalItems int, worker Worker) strin
 	ctx, cancel := context.WithCancel(context.Background())
 
 	op := &Op{
-		id:       id,
-		kind:     kind,
-		cancel:   cancel,
-		ctx:      ctx,
+		id:     id,
+		kind:   kind,
+		cancel: cancel,
+		ctx:    ctx,
 		progress: model.OpProgress{
 			ID:         id,
 			Kind:       kind,

@@ -13,6 +13,12 @@ vars:
   # Docker image for cross-compilation (used when building on non-Linux or no CC available)
   CROSS_IMAGE: wails-cross
 
+  # Wails v3 targets GTK4 + WebKitGTK 6.0 by default. Debian 12, Ubuntu
+  # 22.04-24.04, Linux Mint and most other current distributions ship
+  # GTK3 + WebKit2GTK 4.1 instead, so the gtk3 tag is on by default here.
+  # Add more tags with: wails3 build EXTRA_TAGS="gtk3,mytag"
+  EXTRA_TAGS: '{{.EXTRA_TAGS | default "gtk3"}}' 
+
 tasks:
   build:
     summary: Builds the application for Linux

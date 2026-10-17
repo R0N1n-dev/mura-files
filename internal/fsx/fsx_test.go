@@ -69,14 +69,14 @@ func TestKindClassification(t *testing.T) {
 
 func TestMimeOverrides(t *testing.T) {
 	cases := map[string]string{
-		"app.ts":       "text/typescript",
-		"main.go":      "text/x-go",
-		"data.json":    "application/json",
-		"README.md":    "text/markdown",
-		"Dockerfile":   "text/x-dockerfile",
-		"script.sh":    "text/x-shellscript",
-		"vector.svg":   "image/svg+xml",
-		"bundle.7z":    "application/x-7z-compressed",
+		"app.ts":     "text/typescript",
+		"main.go":    "text/x-go",
+		"data.json":  "application/json",
+		"README.md":  "text/markdown",
+		"Dockerfile": "text/x-dockerfile",
+		"script.sh":  "text/x-shellscript",
+		"vector.svg": "image/svg+xml",
+		"bundle.7z":  "application/x-7z-compressed",
 	}
 	for name, want := range cases {
 		if got := MimeOf(name); got != want {

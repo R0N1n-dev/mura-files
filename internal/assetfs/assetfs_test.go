@@ -143,7 +143,7 @@ func TestThumbRouteServesImages(t *testing.T) {
 func TestFilenameSanitising(t *testing.T) {
 	cases := map[string]string{
 		`evil"name.txt`: "evilname.txt",
-		"new\nline.txt":  "newline.txt",
+		"new\nline.txt": "newline.txt",
 		`back\slash`:    "backslash",
 		"":              "download",
 	}

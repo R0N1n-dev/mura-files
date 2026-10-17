@@ -2,6 +2,7 @@ package shell
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,4 +138,61 @@ func AccentColour() string {
 		}
 	}
 	return ""
+}
+
+// SessionBusAvailable reports whether a D-Bus session bus can be reached.
+//
+// Several desktop integrations (single instance hand-off, notifications,
+// trash portals) need one. On minimal systems and inside containers there is
+// often no bus at all, and the application must keep working in that case
+// instead of refusing to start.
+func SessionBusAvailable() bool {
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	// An advertised bus address is only trustworthy when the socket it points
+	// at actually exists; a stale variable would otherwise turn into a fatal
+	// startup error inside the single instance manager.
+	if address := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); address != "" {
+		if busAddressReachable(address) {
+			return true
+		}
+	}
+	// systemd user sessions expose the bus as a socket under /run/user.
+	if info, err := os.Stat(fmt.Sprintf("/run/user/%d/bus", os.Getuid())); err == nil && !info.IsDir() {
+		return true
+	}
+	// Falling back to spawning a private bus only works when the helper exists.
+	if _, err := exec.LookPath("dbus-launch"); err == nil {
+		return true
+	}
+	if _, err := exec.LookPath("dbus-daemon"); err == nil {
+		return true
+	}
+	return false
+}
+
+// busAddressReachable inspects a D-Bus address string and reports whether the
+// endpoint it names exists on this machine.
+func busAddressReachable(address string) bool {
+	for _, part := range strings.Split(address, ";") {
+		for _, field := range strings.Split(part, ",") {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok {
+				continue
+			}
+			switch key {
+			case "path":
+				if _, err := os.Stat(value); err != nil {
+					return false
+				}
+				return true
+			case "abstract":
+				// Abstract sockets have no filesystem presence to check.
+				return true
+			}
+		}
+	}
+	// Anything we cannot interpret (a TCP bus, for instance) is assumed usable.
+	return strings.HasPrefix(address, "tcp:") || strings.HasPrefix(address, "unix:abstract=")
 }

@@ -242,7 +242,6 @@ func Usage(path string) model.Usage {
 	return u
 }
 
-
 // Drives returns the mount points worth showing in the sidebar.
 func Drives() []model.Drive {
 	seen := map[string]bool{}

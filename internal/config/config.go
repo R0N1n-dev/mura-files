@@ -57,7 +57,7 @@ func DefaultSettings() model.Settings {
 		SizeFormat: "binary",
 
 		ThumbnailSize: 128,
-		WatchEnabled:   true,
+		WatchEnabled:  true,
 
 		SidebarWidth: 244,
 		PreviewWidth: 320,

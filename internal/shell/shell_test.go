@@ -73,11 +73,11 @@ func TestDarkModeReturnsASource(t *testing.T) {
 
 func TestSanitiseExec(t *testing.T) {
 	cases := map[string][]string{
-		"gedit %U":                     {"gedit"},
-		"firefox %u --new-window":      {"firefox", "--new-window"},
-		"code --new-window %F":         {"code", "--new-window"},
-		"libreoffice --writer %f":      {"libreoffice", "--writer"},
-		"sh -c 'echo 100%% done'":      {"sh", "-c", "'echo", "100%", "done'"},
+		"gedit %U":                {"gedit"},
+		"firefox %u --new-window": {"firefox", "--new-window"},
+		"code --new-window %F":    {"code", "--new-window"},
+		"libreoffice --writer %f": {"libreoffice", "--writer"},
+		"sh -c 'echo 100%% done'": {"sh", "-c", "'echo", "100%", "done'"},
 	}
 	for input, want := range cases {
 		got := sanitiseExec(input)

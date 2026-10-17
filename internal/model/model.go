@@ -14,13 +14,13 @@ type Entry struct {
 	Dir  string `json:"dir"`
 	Ext  string `json:"ext"`
 
-	IsDir      bool `json:"isDir"`
-	IsSymlink  bool `json:"isSymlink"`
-	IsHidden   bool `json:"isHidden"`
-	IsExec     bool `json:"isExec"`
-	IsReadable bool `json:"isReadable"`
-	IsWritable bool `json:"isWritable"`
-	LinkBroken bool `json:"linkBroken"`
+	IsDir      bool   `json:"isDir"`
+	IsSymlink  bool   `json:"isSymlink"`
+	IsHidden   bool   `json:"isHidden"`
+	IsExec     bool   `json:"isExec"`
+	IsReadable bool   `json:"isReadable"`
+	IsWritable bool   `json:"isWritable"`
+	LinkBroken bool   `json:"linkBroken"`
 	Target     string `json:"target"`
 
 	Size     int64  `json:"size"`
@@ -38,10 +38,10 @@ type Entry struct {
 	GID   uint32 `json:"gid"`
 	Nlink uint32 `json:"nlink"`
 
-	Mime string `json:"mime"`
-	Kind string `json:"kind"`
-	Icon string `json:"icon"`
-	Thumb bool  `json:"thumb"`
+	Mime        string `json:"mime"`
+	Kind        string `json:"kind"`
+	Icon        string `json:"icon"`
+	Thumb       bool   `json:"thumb"`
 	AppIcon     string `json:"appIcon"`
 	DesktopName string `json:"desktopName"`
 	ItemCount   int64  `json:"itemCount"`
@@ -194,8 +194,8 @@ type OpProgress struct {
 	// Speed is bytes per second.
 	Speed float64 `json:"speed"`
 	// ETASeconds is the estimated remaining time in seconds (-1 when unknown).
-	ETASeconds int    `json:"etaSeconds"`
-	Message    string `json:"message"`
+	ETASeconds int      `json:"etaSeconds"`
+	Message    string   `json:"message"`
 	Errors     []string `json:"errors"`
 
 	StartedAt int64 `json:"startedAt"`
@@ -243,8 +243,8 @@ type DeleteOptions struct {
 
 // SearchQuery describes a recursive search.
 type SearchQuery struct {
-	Roots  []string `json:"roots"`
-	Pattern string  `json:"pattern"`
+	Roots   []string `json:"roots"`
+	Pattern string   `json:"pattern"`
 	// Mode is one of: glob, regex, exact, contains.
 	Mode      string `json:"mode"`
 	MatchCase bool   `json:"matchCase"`
@@ -277,8 +277,8 @@ type SearchResults struct {
 	ID      string  `json:"id"`
 	Entries []Entry `json:"entries"`
 	// Scanned is the number of filesystem entries inspected so far.
-	Scanned int `json:"scanned"`
-	Found   int `json:"found"`
+	Scanned int  `json:"scanned"`
+	Found   int  `json:"found"`
 	Done    bool `json:"done"`
 	// Elapsed is the search duration in milliseconds.
 	Elapsed int64  `json:"elapsed"`
@@ -371,9 +371,9 @@ type Settings struct {
 	ConfirmMove     bool `json:"confirmMove"`
 	SingleClickOpen bool `json:"singleClickOpen"`
 
-	RestoreTabs    bool     `json:"restoreTabs"`
-	OpenTabs       []string `json:"openTabs"`
-	ActiveTab      int      `json:"activeTab"`
+	RestoreTabs bool     `json:"restoreTabs"`
+	OpenTabs    []string `json:"openTabs"`
+	ActiveTab   int      `json:"activeTab"`
 
 	DateFormat string `json:"dateFormat"`
 	SizeFormat string `json:"sizeFormat"`

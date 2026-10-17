@@ -20,7 +20,7 @@ type Event struct {
 	Changed []string `json:"changed"`
 	Renamed []string `json:"renamed"`
 	// Any is true when at least one change of any kind was observed.
-	Any bool `json:"any"`
+	Any bool  `json:"any"`
 	At  int64 `json:"at"`
 }
 
