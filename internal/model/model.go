@@ -89,12 +89,57 @@ type TextPreview struct {
 
 // Usage reports disk usage for a path.
 type Usage struct {
-	Path    string  `json:"path"`
-	Total   uint64  `json:"total"`
-	Free    uint64  `json:"free"`
-	Used    uint64  `json:"used"`
+	Path string `json:"path"`
+	// Total is the size of the filesystem.
+	Total uint64 `json:"total"`
+	// Used and Free follow the df convention: Used = Total - Bfree and
+	// Free = Total - Used.
+	Used uint64 `json:"used"`
+	Free uint64 `json:"free"`
+	// Available is the space this user may actually write, which is smaller
+	// than Free because most filesystems reserve blocks for root.
+	Available uint64 `json:"available"`
+	// Percent mirrors df's Use% column: Used / (Used + Available).
 	Percent float64 `json:"percent"`
 	FsType  string  `json:"fsType"`
+	// Mount is the mount point that contains Path.
+	Mount string `json:"mount"`
+}
+
+// FolderSize is streamed while the recursive size of a folder is computed.
+type FolderSize struct {
+	Request string `json:"request"`
+	Path    string `json:"path"`
+	Bytes   int64  `json:"bytes"`
+	Files   int64  `json:"files"`
+	Dirs    int64  `json:"dirs"`
+	Done    bool   `json:"done"`
+	Error   string `json:"error"`
+}
+
+// UndoItem describes a single reversible change.
+type UndoItem struct {
+	// From is the original path (empty for created items).
+	From string `json:"from"`
+	// To is the path after the change (or the created path).
+	To string `json:"to"`
+}
+
+// UndoResult reports the outcome of an undo request.
+type UndoResult struct {
+	OK      bool   `json:"ok"`
+	Label   string `json:"label"`
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+// UndoEntry is one reversible operation recorded on the undo stack.
+type UndoEntry struct {
+	// Kind is one of trash, move, rename, create, duplicate.
+	Kind  string     `json:"kind"`
+	Label string     `json:"label"`
+	Items []UndoItem `json:"items"`
+	At    int64      `json:"at"`
 }
 
 // CountResult aggregates statistics for a set of paths.
@@ -132,14 +177,17 @@ type Place struct {
 
 // Drive describes a mounted filesystem.
 type Drive struct {
-	Name      string  `json:"name"`
-	Path      string  `json:"path"`
-	Device    string  `json:"device"`
-	FsType    string  `json:"fsType"`
-	Label     string  `json:"label"`
-	Total     uint64  `json:"total"`
-	Free      uint64  `json:"free"`
-	Used      uint64  `json:"used"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Device string `json:"device"`
+	FsType string `json:"fsType"`
+	Label  string `json:"label"`
+	Total  uint64 `json:"total"`
+	Free   uint64 `json:"free"`
+	Used   uint64 `json:"used"`
+	// Available is the space the user may write, which is smaller than Free on
+	// filesystems that reserve blocks for root.
+	Available uint64  `json:"available"`
 	Percent   float64 `json:"percent"`
 	Removable bool    `json:"removable"`
 	ReadOnly  bool    `json:"readOnly"`

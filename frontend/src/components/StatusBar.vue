@@ -1,35 +1,14 @@
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { computed } from 'vue';
 import Icon from './Icon.vue';
 import {
   state, activeTab, selectedEntries, selectionSize, openDialog,
   clearFinishedOperations, cancelOperation, openContextMenu, emptyTrash,
+  refreshUsage, refreshDrives, undoLast, toggleOpsPanel, navigate,
 } from '../store/app.js';
 import { formatSize, formatDuration, pluralise, shortenPath } from '../lib/format.js';
-import { FileService } from '../lib/fs.js';
 
 const tab = computed(() => activeTab.value);
-const usage = ref(null);
-let usageTimer = null;
-
-async function refreshUsage() {
-  const path = tab.value?.path;
-  if (!path) return;
-  try {
-    usage.value = await FileService.Usage(path);
-  } catch {
-    usage.value = null;
-  }
-}
-
-onMounted(() => {
-  refreshUsage();
-  usageTimer = setInterval(refreshUsage, 15000);
-});
-
-onUnmounted(() => {
-  if (usageTimer) clearInterval(usageTimer);
-});
 
 const summary = computed(() => {
   const current = tab.value;
@@ -66,42 +45,83 @@ const selectionText = computed(() => {
   return text;
 });
 
-const runningOps = computed(() => state.ops.filter((op) => op.status === 'running' || op.status === 'queued'));
+const runningOps = computed(() =>
+  state.ops.filter((op) => op.status === 'running' || op.status === 'queued'));
 const primaryOp = computed(() => runningOps.value[0] || null);
 
-const usagePercent = computed(() => Math.min(100, usage.value?.percent || 0));
+/** Disk usage of the filesystem holding the browsed folder. */
+const usage = computed(() => state.usage);
+const usagePercent = computed(() => {
+  const value = usage.value?.percent;
+  if (value === undefined || value === null || Number.isNaN(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+});
+
+/** The number shown in the bar: what the user can actually write. */
+const freeLabel = computed(() => {
+  const value = usage.value;
+  if (!value || !value.total) return '—';
+  return `${formatSize(value.available ?? value.free ?? 0)} free`;
+});
+
+const usageTitle = computed(() => {
+  const value = usage.value;
+  if (!value || !value.total) return 'Disk usage unavailable';
+  const lines = [
+    `${formatSize(value.used)} used of ${formatSize(value.total)}`,
+    `${formatSize(value.available)} available to you`,
+    `${usagePercent.value.toFixed(0)}% used`,
+  ];
+  if (value.fsType) lines.push(`Filesystem: ${value.fsType}`);
+  if (value.mount) lines.push(`Mounted at ${value.mount}`);
+  return lines.join('\n');
+});
 
 function opsMenu(event) {
   const finished = state.ops.filter((op) => op.status !== 'running' && op.status !== 'queued');
-  const items = [];
+  const items = [
+    { label: 'Show operation queue', icon: 'activity', run: () => toggleOpsPanel(true) },
+  ];
   if (finished.length) {
     items.push({ label: 'Clear finished', icon: 'x-circle', run: () => clearFinishedOperations() });
-    items.push({ separator: true });
   }
+  items.push({ separator: true });
   if (!state.ops.length) {
     items.push({ label: 'No recent operations', disabled: true });
   }
   state.ops.slice().reverse().forEach((op) => {
-    const label = `${op.title || op.kind} — ${op.status}`;
     items.push({
-      label,
+      label: `${op.title || op.kind} — ${op.status}`,
       icon: op.status === 'running' ? 'loader' : op.status === 'error' ? 'alert-circle' : 'check-circle',
-      run: () => {},
+      run: () => toggleOpsPanel(true),
     });
     if (op.status === 'running') {
-      items.push({ label: '  Cancel', icon: 'x', run: () => cancelOperation(op.id) });
+      items.push({ label: '    Cancel', icon: 'x', run: () => cancelOperation(op.id) });
     }
   });
   openContextMenu(event, items);
 }
 
 function usageMenu(event) {
+  const value = usage.value;
   openContextMenu(event, [
-    { label: usage.value?.fsType ? `Filesystem: ${usage.value.fsType}` : 'Filesystem', disabled: true },
-    { label: `Free: ${formatSize(usage.value?.free || 0)}`, disabled: true },
-    { label: `Total: ${formatSize(usage.value?.total || 0)}`, disabled: true },
+    { label: value?.fsType ? `Filesystem: ${value.fsType}` : 'Filesystem', disabled: true },
+    { label: value?.mount ? `Mounted at: ${value.mount}` : 'Mount point unknown', disabled: true },
     { separator: true },
-    { label: 'Refresh', icon: 'refresh', run: refreshUsage },
+    { label: `Total: ${formatSize(value?.total || 0)}`, disabled: true },
+    { label: `Used: ${formatSize(value?.used || 0)}`, disabled: true },
+    { label: `Available: ${formatSize(value?.available || 0)}`, disabled: true },
+    { separator: true },
+    { label: 'Refresh', icon: 'refresh', run: () => { refreshUsage(); refreshDrives(); } },
+    {
+      label: 'Go to mount point',
+      icon: 'hard-drive',
+      disabled: !value?.mount,
+      run: () => {
+        const current = activeTab.value;
+        if (current && value?.mount) navigate(current, value.mount);
+      },
+    },
   ]);
 }
 
@@ -117,7 +137,7 @@ function trashMenu(event) {
     <div class="left">
       <button class="stat" type="button" @click="openDialog('about')">
         <Icon name="info" :size="12" />
-        <span>{{ summary }}</span>
+        <span class="truncate">{{ summary }}</span>
       </button>
     </div>
 
@@ -127,9 +147,25 @@ function trashMenu(event) {
         <Icon name="loader" :size="12" class="spin" />
         <span>Scanning…</span>
       </span>
+      <span v-else-if="state.typeAhead.buffer" class="stat is-accent">
+        <Icon name="search" :size="12" />
+        <span class="mono">{{ state.typeAhead.buffer }}</span>
+      </span>
     </div>
 
     <div class="right">
+      <button
+        v-if="state.undo.depth"
+        class="stat"
+        type="button"
+        :title="`Undo ${state.undo.label} (Ctrl+Z)`"
+        @click="undoLast"
+      >
+        <Icon name="restore" :size="12" />
+        <span>Undo</span>
+        <span v-if="state.undo.depth > 1" class="chip">{{ state.undo.depth }}</span>
+      </button>
+
       <button
         v-if="tab?.mode === 'trash'"
         class="stat"
@@ -156,16 +192,28 @@ function trashMenu(event) {
         <span v-if="runningOps.length > 1" class="chip">+{{ runningOps.length - 1 }}</span>
       </button>
 
-      <button class="stat" type="button" :title="shortenPath(tab?.path || '')" @click="usageMenu">
+      <button
+        v-else-if="state.ops.length"
+        class="stat"
+        type="button"
+        title="Operation history"
+        @click="opsMenu"
+      >
+        <Icon name="activity" :size="12" />
+        <span>{{ state.ops.length }}</span>
+      </button>
+
+      <button class="stat usage" type="button" :title="usageTitle" @click="usageMenu">
         <Icon name="hard-drive" :size="12" />
-        <span class="usage-bar" :title="`${usagePercent.toFixed(0)}% used`">
+        <span class="usage-bar" :title="usageTitle">
           <span
             class="usage-bar-fill"
             :class="{ 'is-high': usagePercent > 88 }"
             :style="{ width: `${usagePercent}%` }"
           />
         </span>
-        <span class="tnum">{{ formatSize(usage?.free || 0) }} free</span>
+        <span class="tnum" :class="{ 'is-dim': !usage?.total }">{{ freeLabel }}</span>
+        <span v-if="usage?.fsType" class="chip usage-fs">{{ usage.fsType }}</span>
       </button>
 
       <button class="stat" type="button" title="Settings" @click="openDialog('settings')">
@@ -204,9 +252,22 @@ function trashMenu(event) {
   font-size: inherit;
   transition: background var(--t-fast), color var(--t-fast);
   min-width: 0;
+  white-space: nowrap;
 }
 .stat:hover { background: var(--hover); color: var(--text); }
 .stat.is-accent { color: var(--accent); }
+.stat.is-dim { color: var(--text-faint); }
+
+.usage { gap: 7px; }
+.usage-fs {
+  text-transform: lowercase;
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 0 5px;
+  height: 16px;
+  font-size: 10px;
+  opacity: 0.8;
+}
 
 .op { max-width: 320px; }
 .op-title { max-width: 140px; }
@@ -227,7 +288,7 @@ function trashMenu(event) {
 
 .usage-bar {
   display: block;
-  width: 46px;
+  width: 52px;
   height: 4px;
   border-radius: 2px;
   background: var(--surface-3);
@@ -237,8 +298,8 @@ function trashMenu(event) {
   display: block;
   height: 100%;
   background: var(--accent);
-  opacity: 0.8;
-  transition: width var(--t-base);
+  opacity: 0.85;
+  transition: width var(--t-slow);
 }
 .usage-bar-fill.is-high { background: var(--warning); opacity: 1; }
 

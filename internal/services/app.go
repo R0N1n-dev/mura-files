@@ -11,6 +11,7 @@ import (
 	"github.com/R0N1n-dev/mura-files/internal/model"
 	"github.com/R0N1n-dev/mura-files/internal/places"
 	"github.com/R0N1n-dev/mura-files/internal/shell"
+	"github.com/R0N1n-dev/mura-files/internal/undo"
 )
 
 // AppService exposes application level features: system information, settings,
@@ -18,11 +19,12 @@ import (
 type AppService struct {
 	rt      *Runtime
 	version string
+	files   *FileService
 }
 
 // NewAppService creates the service.
-func NewAppService(rt *Runtime, version string) *AppService {
-	return &AppService{rt: rt, version: version}
+func NewAppService(rt *Runtime, version string, files *FileService) *AppService {
+	return &AppService{rt: rt, version: version, files: files}
 }
 
 // ServiceName identifies the service in logs and bindings.
@@ -428,3 +430,46 @@ func (s *AppService) CacheStats() map[string]any {
 
 // ClearThumbnailCache empties the thumbnail cache.
 func (s *AppService) ClearThumbnailCache() error { return s.rt.Thumbs.Clear() }
+
+// ---------------------------------------------------------------------------
+// Undo
+// ---------------------------------------------------------------------------
+
+// UndoDepth reports how many operations can still be taken back.
+func (s *AppService) UndoDepth() int { return s.rt.Undo.Len() }
+
+// UndoLabel describes the operation that would be undone next.
+func (s *AppService) UndoLabel() string {
+	entry, ok := s.rt.Undo.Peek()
+	if !ok {
+		return ""
+	}
+	return entry.Label
+}
+
+// Undo reverses the most recent reversible operation.
+func (s *AppService) Undo() (model.UndoResult, error) {
+	entry, ok := s.rt.Undo.Pop()
+	if !ok {
+		return model.UndoResult{Message: "Nothing to undo"}, nil
+	}
+	result, err := undo.Apply(entry)
+	// Any undo changes the filesystem, so refresh every open view.
+	s.rt.Emit(EventFsChanged, map[string]any{"dir": "", "any": true})
+	return model.UndoResult{OK: result.OK, Label: result.Label, Message: result.Message, Count: result.Count}, err
+}
+
+// ClearUndo forgets the undo history.
+func (s *AppService) ClearUndo() {
+	s.rt.Undo.Clear()
+	s.rt.Emit(EventUndo)
+}
+
+// ---------------------------------------------------------------------------
+// Folder sizes
+// ---------------------------------------------------------------------------
+
+// FolderSizes starts a background job that measures the given folders.
+func (s *AppService) FolderSizes(paths []string) string {
+	return s.files.FolderSizes(paths)
+}

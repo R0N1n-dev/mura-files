@@ -155,11 +155,19 @@ func Complete(partial string, limit int) []model.Completion {
 }
 
 // IsSameOrInside reports whether child equals parent or lives beneath it.
+//
+// The root directory needs special handling: naively appending a separator to
+// "/" yields "//", which never matches a real path and silently breaks mount
+// lookups, archive extraction checks and recursive size guards.
 func IsSameOrInside(parent, child string) bool {
 	parent = filepath.Clean(parent)
 	child = filepath.Clean(child)
 	if parent == child {
 		return true
 	}
-	return strings.HasPrefix(child, parent+string(os.PathSeparator))
+	sep := string(os.PathSeparator)
+	if parent == sep {
+		return strings.HasPrefix(child, sep)
+	}
+	return strings.HasPrefix(child, parent+sep)
 }

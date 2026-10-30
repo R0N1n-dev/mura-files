@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/R0N1n-dev/mura-files/internal/fsx"
 )
 
 func TestUsageAndDrives(t *testing.T) {
@@ -14,6 +17,18 @@ func TestUsageAndDrives(t *testing.T) {
 	}
 	if usage.Used == 0 || usage.Percent <= 0 || usage.Percent > 100 {
 		t.Fatalf("unexpected usage: %+v", usage)
+	}
+	if usage.Available == 0 {
+		t.Fatalf("available space should be reported: %+v", usage)
+	}
+	if usage.FsType == "" || usage.Mount == "" {
+		t.Fatalf("the containing filesystem should be identified: %+v", usage)
+	}
+	if usage.Used+usage.Free != usage.Total {
+		t.Fatalf("used+free must equal total: %+v", usage)
+	}
+	if usage.Available > usage.Free {
+		t.Fatalf("available (%d) must not exceed free (%d)", usage.Available, usage.Free)
 	}
 
 	drives := Drives()
@@ -208,5 +223,106 @@ func TestEscapeUnescapeTrashPath(t *testing.T) {
 	original := "/home/user/my folder/notes 100%.txt"
 	if got := unescapeTrashPath(escapeTrashPath(original)); got != original {
 		t.Fatalf("round trip produced %q, want %q", got, original)
+	}
+}
+
+// TestUsageMatchesDfSemantics pins down the numbers so the status bar agrees
+// with df. Getting this wrong is exactly the bug that made the status bar
+// report nonsense: Bfree instead of Bavail, and f_bsize instead of f_frsize.
+func TestUsageMatchesDfSemantics(t *testing.T) {
+	usage := Usage("/")
+	if usage.Total == 0 {
+		t.Skip("no filesystem to inspect")
+	}
+
+	if usage.Used != usage.Total-usage.Free {
+		t.Errorf("Used = %d, want Total-Free = %d", usage.Used, usage.Total-usage.Free)
+	}
+	if usage.Available == 0 {
+		t.Error("Available should never be zero on a writable root")
+	}
+	if usage.Available > usage.Free {
+		t.Errorf("Available (%d) must not exceed Free (%d): root-reserved blocks are not available",
+			usage.Available, usage.Free)
+	}
+
+	wantPercent := float64(usage.Used) / float64(usage.Used+usage.Available) * 100
+	if diff := usage.Percent - wantPercent; diff > 0.001 || diff < -0.001 {
+		t.Errorf("Percent = %f, want %f", usage.Percent, wantPercent)
+	}
+	if usage.Percent < 0 || usage.Percent > 100 {
+		t.Errorf("Percent out of range: %f", usage.Percent)
+	}
+}
+
+func TestUsageResolvesContainingFilesystem(t *testing.T) {
+	// A path well below the root must still be attributed to a filesystem.
+	dir := t.TempDir()
+	usage := Usage(dir)
+	if usage.Mount == "" {
+		t.Fatalf("no mount point resolved for %q: %+v", dir, usage)
+	}
+	if usage.FsType == "" {
+		t.Fatalf("no filesystem type resolved for %q", dir)
+	}
+	if !fsx.IsSameOrInside(usage.Mount, dir) {
+		t.Errorf("mount %q does not contain %q", usage.Mount, dir)
+	}
+}
+
+func TestMountForPrefersLongestMatch(t *testing.T) {
+	if _, ok := MountFor("/"); !ok {
+		t.Fatal("the root mount should always be found")
+	}
+	mount, ok := MountFor("/proc/self")
+	if ok && mount.path != "/proc" && mount.path != "/" {
+		t.Errorf("unexpected mount for /proc/self: %q", mount.path)
+	}
+	if _, ok := MountFor("/definitely/not/a/real/path"); ok {
+		// It is fine to fall back to "/", but not to match a bogus mount.
+		t.Log("no exact mount, fell back to root")
+	}
+}
+
+func TestStatfsIsCoherent(t *testing.T) {
+	total, free, avail, err := Statfs("/")
+	if err != nil {
+		t.Fatalf("Statfs: %v", err)
+	}
+	if total == 0 {
+		t.Fatal("total should be non-zero")
+	}
+	if free > total {
+		t.Errorf("free (%d) exceeds total (%d)", free, total)
+	}
+	if avail > free {
+		t.Errorf("avail (%d) exceeds free (%d)", avail, free)
+	}
+}
+
+func TestBlockSizeFallsBackToBsize(t *testing.T) {
+	st := syscall.Statfs_t{Frsize: 4096, Bsize: 65536}
+	if got := blockSize(&st); got != 4096 {
+		t.Errorf("expected f_frsize to win, got %d", got)
+	}
+	st = syscall.Statfs_t{Frsize: 0, Bsize: 65536}
+	if got := blockSize(&st); got != 65536 {
+		t.Errorf("expected the f_bsize fallback, got %d", got)
+	}
+	st = syscall.Statfs_t{Frsize: 0, Bsize: 0}
+	if got := blockSize(&st); got != 4096 {
+		t.Errorf("expected the 4096 default, got %d", got)
+	}
+}
+
+func TestMountCacheInvalidation(t *testing.T) {
+	first := readMounts()
+	if len(first) == 0 {
+		t.Skip("no mount table in this environment")
+	}
+	invalidateMounts()
+	second := readMounts()
+	if len(second) != len(first) {
+		t.Errorf("mount table changed size between reads: %d vs %d", len(first), len(second))
 	}
 }

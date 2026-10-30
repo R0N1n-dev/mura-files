@@ -18,6 +18,7 @@ import SettingsDialog from './SettingsDialog.vue';
 import ShortcutsDialog from './ShortcutsDialog.vue';
 import AboutDialog from './AboutDialog.vue';
 import AppPickerDialog from './AppPickerDialog.vue';
+import OperationsPanel from './OperationsPanel.vue';
 import {
   state, activeTab, updateSettings, togglePalette, openDialog, closeDialog,
   closeContextMenu, newTab, closeTab, selectTab, goBack, goForward, goUp,
@@ -26,6 +27,8 @@ import {
   duplicateSelection, startRename, cancelRename, moveCursor, openEntry,
   toggleHidden, setViewMode, showProperties, openInTerminal, showTrash,
   addBookmark, saveViewDefaults, commitRename, openPathsInNewTab,
+  undoLast, reopenClosedTab, toggleOpsPanel, typeAhead, startUsagePolling,
+  refreshUsage, refreshUndoState,
 } from '../store/app.js';
 import { AppService } from '../lib/fs.js';
 
@@ -139,6 +142,9 @@ async function onKeydown(event) {
   if (mod && event.shiftKey && event.key.toLowerCase() === 'n') { event.preventDefault(); createFolder(current); return; }
   if (mod && event.altKey && event.key.toLowerCase() === 'n') { event.preventDefault(); createFile(current); return; }
   if (mod && event.shiftKey && event.key.toLowerCase() === 's') { event.preventDefault(); saveViewDefaults(current); return; }
+  if (mod && event.key.toLowerCase() === 'z') { event.preventDefault(); undoLast(); return; }
+  if (mod && event.shiftKey && event.key.toLowerCase() === 't') { event.preventDefault(); reopenClosedTab(); return; }
+  if (mod && event.key.toLowerCase() === 'j') { event.preventDefault(); toggleOpsPanel(); return; }
   if (mod && event.shiftKey && event.key.toLowerCase() === 'f') {
     event.preventDefault();
     AppService.ToggleFullscreen().catch(() => {});
@@ -191,6 +197,14 @@ async function onKeydown(event) {
     updateSettings({ showPreview: !state.settings.showPreview }, true);
     return;
   }
+
+  // Type-ahead: a single printable character with no modifiers jumps to the
+  // first matching name, the way desktop file managers have always behaved.
+  if (!mod && !event.altKey && event.key.length === 1 && event.key !== ' ') {
+    event.preventDefault();
+    typeAhead(event.key, current);
+    return;
+  }
 }
 
 /* ------------------------------- lifecycle ------------------------------- */
@@ -202,6 +216,9 @@ function onWindowFocus() {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('focus', onWindowFocus);
+  refreshUsage();
+  startUsagePolling();
+  refreshUndoState();
 });
 
 onUnmounted(() => {
@@ -245,6 +262,7 @@ onUnmounted(() => {
 
     <StatusBar v-if="state.settings.showStatusBar" />
 
+    <OperationsPanel />
     <ContextMenu />
     <CommandPalette />
     <Toasts />

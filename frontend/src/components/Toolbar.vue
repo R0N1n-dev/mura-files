@@ -6,6 +6,7 @@ import {
   state, activeTab, canGoBack, canGoForward, goBack, goForward, goUp, refreshTab,
   newTab, createFolder, createFile, clipboardPaste, clipboardHasItems,
   toggleHidden, setViewMode, setSort, openDialog, saveViewDefaults, updateSettings,
+  undoLast, toggleOpsPanel,
   startSearch, stopSearch, showTrash, addBookmark, openContextMenu,
 } from '../store/app.js';
 
@@ -83,6 +84,8 @@ function moreMenu(event) {
       run: togglePreview,
     },
     { label: 'Add to bookmarks', icon: 'bookmark', run: () => addBookmark(tab.value?.path) },
+    { label: 'Undo', icon: 'restore', shortcut: 'Ctrl+Z', disabled: !state.undo.depth, run: undoLast },
+    { label: 'Operation queue', icon: 'activity', shortcut: 'Ctrl+J', run: () => toggleOpsPanel(true) },
     { separator: true },
     { label: 'Trash', icon: 'trash', run: showTrash },
     { separator: true },
@@ -232,6 +235,26 @@ defineExpose({ focusPath: () => pathBar.value?.beginEdit() });
       @click="togglePreview"
     >
       <Icon name="panel-right" :size="16" />
+    </button>
+
+    <button
+      v-if="state.undo.depth"
+      class="icon-btn"
+      type="button"
+      :title="`Undo ${state.undo.label} (Ctrl+Z)`"
+      @click="undoLast"
+    >
+      <Icon name="restore" :size="16" />
+    </button>
+
+    <button
+      class="icon-btn"
+      type="button"
+      :class="{ 'is-active': state.opsPanel.open }"
+      title="Operation queue (Ctrl+J)"
+      @click="toggleOpsPanel()"
+    >
+      <Icon name="activity" :size="16" />
     </button>
 
     <button class="icon-btn" type="button" title="More actions" @click="moreMenu">

@@ -18,8 +18,10 @@ import (
 	"github.com/R0N1n-dev/mura-files/internal/fsop"
 	"github.com/R0N1n-dev/mura-files/internal/fsx"
 	"github.com/R0N1n-dev/mura-files/internal/model"
+	"github.com/R0N1n-dev/mura-files/internal/ops"
 	"github.com/R0N1n-dev/mura-files/internal/places"
 	"github.com/R0N1n-dev/mura-files/internal/shell"
+	"github.com/R0N1n-dev/mura-files/internal/undo"
 )
 
 // FileService exposes directory listing and single item operations.
@@ -125,6 +127,7 @@ func (s *FileService) CreateDir(parent, name string) (model.Entry, error) {
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		return model.Entry{}, fmt.Errorf("%s", fsx.FriendlyError(err))
 	}
+	s.recordCreate(target)
 	return fsx.Stat(target)
 }
 
@@ -145,6 +148,7 @@ func (s *FileService) CreateFile(parent, name, content string) (model.Entry, err
 	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
 		return model.Entry{}, fmt.Errorf("%s", fsx.FriendlyError(err))
 	}
+	s.recordCreate(target)
 	return fsx.Stat(target)
 }
 
@@ -169,6 +173,12 @@ func (s *FileService) Rename(path, newName string) (model.Entry, error) {
 	if err := os.Rename(path, target); err != nil {
 		return model.Entry{}, fmt.Errorf("%s", fsx.FriendlyError(err))
 	}
+	s.rt.Undo.Push(model.UndoEntry{
+		Kind:  undo.KindRename,
+		Label: fmt.Sprintf("Rename %s", filepath.Base(path)),
+		Items: []model.UndoItem{{From: path, To: target}},
+	})
+	s.rt.Emit(EventUndo)
 	return fsx.Stat(target)
 }
 
@@ -176,14 +186,26 @@ func (s *FileService) Rename(path, newName string) (model.Entry, error) {
 func (s *FileService) Trash(paths []string) (int, error) {
 	moved := 0
 	var firstErr error
+	items := make([]model.UndoItem, 0, len(paths))
 	for _, p := range paths {
-		if _, err := places.TrashPath(fsx.Abs(p)); err != nil {
+		abs := fsx.Abs(p)
+		infoPath, err := places.TrashPath(abs)
+		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
+		items = append(items, model.UndoItem{From: abs, To: infoPath})
 		moved++
+	}
+	if len(items) > 0 {
+		s.rt.Undo.Push(model.UndoEntry{
+			Kind:  undo.KindTrash,
+			Label: fmt.Sprintf("Trash %d item(s)", len(items)),
+			Items: items,
+		})
+		s.rt.Emit(EventUndo)
 	}
 	return moved, firstErr
 }
@@ -352,4 +374,109 @@ func (s *FileService) DesktopMeta(path string) (string, string) {
 func (s *FileService) SortEntries(entries []model.Entry, opts model.ListOptions) []model.Entry {
 	fsx.Sort(entries, opts)
 	return entries
+}
+
+// recordCreate notes a newly created path so it can be removed again by undo.
+func (s *FileService) recordCreate(path string) {
+	s.rt.Undo.Push(model.UndoEntry{
+		Kind:  undo.KindCreate,
+		Label: fmt.Sprintf("Create %s", filepath.Base(path)),
+		Items: []model.UndoItem{{To: path}},
+	})
+	s.rt.Emit(EventUndo)
+}
+
+// CreateLink creates a symbolic link pointing at target, named linkName, in the
+// same folder as target. Passing an empty name derives a sensible default.
+func (s *FileService) CreateLink(target, linkName string) (model.Entry, error) {
+	target = fsx.Abs(target)
+	if target == "" {
+		return model.Entry{}, fmt.Errorf("no target supplied")
+	}
+	if _, err := os.Lstat(target); err != nil {
+		return model.Entry{}, fmt.Errorf("%s", fsx.FriendlyError(err))
+	}
+	dir := filepath.Dir(target)
+	name := strings.TrimSpace(linkName)
+	if name == "" {
+		base := filepath.Base(target)
+		ext := filepath.Ext(base)
+		name = strings.TrimSuffix(base, ext) + " link" + ext
+	}
+	if strings.ContainsAny(name, "/\x00") {
+		return model.Entry{}, fmt.Errorf("link name cannot contain a slash")
+	}
+	link := filepath.Join(dir, name)
+	if _, err := os.Lstat(link); err == nil {
+		link = filepath.Join(dir, fsx.UniqueName(dir, name))
+	}
+	// Point at the base name so the link keeps working if the folder moves.
+	if err := os.Symlink(filepath.Base(target), link); err != nil {
+		return model.Entry{}, fmt.Errorf("%s", fsx.FriendlyError(err))
+	}
+	s.recordCreate(link)
+	return fsx.Stat(link)
+}
+
+// FolderSizes starts a background job that computes the recursive size of each
+// folder in paths. Progress is streamed on the "fs:folder-size" event, one
+// message per folder, and the job appears in the operation queue so it can be
+// cancelled. It returns the job identifier.
+func (s *FileService) FolderSizes(paths []string) string {
+	candidates := make([]string, 0, len(paths))
+	for _, p := range paths {
+		abs := fsx.Abs(p)
+		info, err := os.Lstat(abs)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		candidates = append(candidates, abs)
+		if len(candidates) >= 500 {
+			break
+		}
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	label := fmt.Sprintf("Sizing %s", describeSizes(candidates))
+	var jobID string
+	jobID = s.rt.Ops.Start("size", label, len(candidates), func(ctx context.Context, r *ops.Reporter) error {
+		for _, dir := range candidates {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			r.SetCurrent(dir)
+			files, dirs, _, bytes, truncated := fsop.TreeSize(ctx, dir, 5_000_000)
+			msg := model.FolderSize{
+				Request: jobID,
+				Path:    dir,
+				Bytes:   bytes,
+				Files:   files,
+				Dirs:    dirs,
+				Done:    true,
+			}
+			if truncated {
+				msg.Error = "Size estimate truncated"
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			s.rt.Emit(EventFolderSize, msg)
+			r.Item(dir)
+		}
+		return nil
+	})
+	return jobID
+}
+
+func describeSizes(paths []string) string {
+	switch len(paths) {
+	case 0:
+		return "nothing"
+	case 1:
+		return filepath.Base(paths[0])
+	default:
+		return fmt.Sprintf("%d folders", len(paths))
+	}
 }

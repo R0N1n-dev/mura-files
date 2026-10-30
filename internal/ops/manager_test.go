@@ -205,3 +205,124 @@ func waitFor(t *testing.T, condition func() bool) {
 	}
 	t.Fatal("condition was not met before the deadline")
 }
+
+func TestSuccessfulJobRecordsUndo(t *testing.T) {
+	var mu sync.Mutex
+	var recorded []model.UndoEntry
+	manager := NewManager(func(model.OpProgress) {})
+	manager.SetUndoRecorder(func(entry model.UndoEntry) {
+		mu.Lock()
+		recorded = append(recorded, entry)
+		mu.Unlock()
+	})
+
+	id := manager.Start("move", "Move things", 2, func(ctx context.Context, r *Reporter) error {
+		r.RecordUndo("move", "Move things", model.UndoItem{From: "/a/one", To: "/b/one"})
+		r.RecordUndo("move", "Move things", model.UndoItem{From: "/a/two", To: "/b/two"})
+		r.Item("/a/one")
+		r.Item("/a/two")
+		return nil
+	})
+
+	waitFor(t, func() bool {
+		progress, ok := manager.Get(id)
+		return ok && progress.Status == StatusDone
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(recorded) != 1 {
+		t.Fatalf("expected exactly one undo entry, got %d", len(recorded))
+	}
+	if recorded[0].Kind != "move" {
+		t.Errorf("kind = %q", recorded[0].Kind)
+	}
+	if len(recorded[0].Items) != 2 {
+		t.Errorf("expected 2 items, got %d", len(recorded[0].Items))
+	}
+}
+
+func TestFailedJobRecordsNoUndo(t *testing.T) {
+	var mu sync.Mutex
+	var recorded []model.UndoEntry
+	manager := NewManager(func(model.OpProgress) {})
+	manager.SetUndoRecorder(func(entry model.UndoEntry) {
+		mu.Lock()
+		recorded = append(recorded, entry)
+		mu.Unlock()
+	})
+
+	id := manager.Start("move", "Move things", 1, func(ctx context.Context, r *Reporter) error {
+		r.RecordUndo("move", "Move things", model.UndoItem{From: "/a/one", To: "/b/one"})
+		return errors.New("permission denied")
+	})
+
+	waitFor(t, func() bool {
+		progress, ok := manager.Get(id)
+		return ok && progress.Status == StatusError
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(recorded) != 0 {
+		t.Errorf("a failed job must not leave an undo entry behind, got %+v", recorded)
+	}
+}
+
+func TestCancelledJobRecordsNoUndo(t *testing.T) {
+	var mu sync.Mutex
+	var recorded []model.UndoEntry
+	manager := NewManager(func(model.OpProgress) {})
+	manager.SetUndoRecorder(func(entry model.UndoEntry) {
+		mu.Lock()
+		recorded = append(recorded, entry)
+		mu.Unlock()
+	})
+
+	started := make(chan struct{})
+	id := manager.Start("move", "Move things", 1, func(ctx context.Context, r *Reporter) error {
+		r.RecordUndo("move", "Move things", model.UndoItem{From: "/a", To: "/b"})
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	<-started
+	manager.Cancel(id)
+
+	waitFor(t, func() bool {
+		progress, ok := manager.Get(id)
+		return ok && progress.Status == StatusCancelled
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(recorded) != 0 {
+		t.Errorf("a cancelled job must not leave an undo entry behind, got %+v", recorded)
+	}
+}
+
+func TestUndoCount(t *testing.T) {
+	manager := NewManager(func(model.OpProgress) {})
+	id := manager.Start("create", "Create", 1, func(ctx context.Context, r *Reporter) error {
+		r.RecordUndo("create", "Create", model.UndoItem{To: "/tmp/x"})
+		r.RecordUndo("create", "Create", model.UndoItem{To: "/tmp/y"})
+		return nil
+	})
+	waitFor(t, func() bool {
+		progress, ok := manager.Get(id)
+		return ok && progress.Status == StatusDone
+	})
+	if got := manager.GetUndoCountForTest(id); got != 2 {
+		t.Errorf("UndoCount = %d, want 2", got)
+	}
+}
+
+// GetUndoCountForTest exposes the recorded undo count for assertions.
+func (m *Manager) GetUndoCountForTest(id string) int {
+	m.mu.RLock()
+	op, ok := m.ops[id]
+	m.mu.RUnlock()
+	if !ok {
+		return -1
+	}
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	return len(op.undo)
+}

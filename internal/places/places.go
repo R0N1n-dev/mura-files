@@ -10,7 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/R0N1n-dev/mura-files/internal/fsx"
 	"github.com/R0N1n-dev/mura-files/internal/model"
@@ -183,8 +185,45 @@ type mountRecord struct {
 	opts   string
 }
 
+// mountCacheTTL bounds how often /proc/mounts is re-read. The file is cheap to
+// parse but this is called for every usage poll and every drive refresh.
+const mountCacheTTL = 2 * time.Second
+
+var (
+	mountMu      sync.RWMutex
+	mountCache   []mountRecord
+	mountCacheAt time.Time
+)
+
 func readMounts() []mountRecord {
-	var out []mountRecord
+	mountMu.RLock()
+	if time.Since(mountCacheAt) < mountCacheTTL {
+		cached := mountCache
+		mountMu.RUnlock()
+		return cached
+	}
+	mountMu.RUnlock()
+
+	records, ok := parseMounts()
+	mountMu.Lock()
+	defer mountMu.Unlock()
+	if ok {
+		mountCache = records
+		mountCacheAt = time.Now()
+		return records
+	}
+	// Keep serving the last known good table if /proc is unreadable.
+	return mountCache
+}
+
+// invalidateMounts forces the next readMounts call to re-read /proc/mounts.
+func invalidateMounts() {
+	mountMu.Lock()
+	mountCacheAt = time.Time{}
+	mountMu.Unlock()
+}
+
+func parseMounts() ([]mountRecord, bool) {
 	for _, file := range []string{"/proc/self/mounts", "/proc/mounts"} {
 		f, err := os.Open(file)
 		if err != nil {
@@ -192,6 +231,7 @@ func readMounts() []mountRecord {
 		}
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		var out []mountRecord
 		for sc.Scan() {
 			fields := strings.Fields(sc.Text())
 			if len(fields) < 4 {
@@ -205,39 +245,82 @@ func readMounts() []mountRecord {
 			})
 		}
 		f.Close()
-		break
+		return out, true
 	}
-	return out
+	return nil, false
 }
 
-// Statfs reports total and free space for the filesystem holding path.
+// MountFor returns the mount record that contains path. The longest matching
+// mount point wins, so nested mounts (/home on a separate disk, for example)
+// are attributed correctly.
+func MountFor(path string) (mountRecord, bool) {
+	path = fsx.Abs(path)
+	best := mountRecord{}
+	bestLen := -1
+	for _, m := range readMounts() {
+		if !fsx.IsSameOrInside(m.path, path) {
+			continue
+		}
+		if len(m.path) > bestLen {
+			best = m
+			bestLen = len(m.path)
+		}
+	}
+	return best, bestLen >= 0
+}
+
+// blockSize returns the fragment size reported by statfs.
+//
+// POSIX defines f_frsize as the fundamental block size and f_bsize as the
+// preferred I/O size. df multiplies the block counts by f_frsize, so doing the
+// same keeps our numbers identical to what users see elsewhere. Some
+// filesystems report f_frsize as zero, in which case f_bsize is used.
+func blockSize(st *syscall.Statfs_t) uint64 {
+	if st.Frsize > 0 {
+		return uint64(st.Frsize)
+	}
+	if st.Bsize > 0 {
+		return uint64(st.Bsize)
+	}
+	return 4096
+}
+
+// Statfs reports the total size, the free size and the space available to the
+// current user for the filesystem holding path.
 func Statfs(path string) (total, free, avail uint64, err error) {
 	var st syscall.Statfs_t
 	if err = syscall.Statfs(path, &st); err != nil {
 		return 0, 0, 0, err
 	}
-	bs := uint64(st.Bsize)
-	return st.Blocks * bs, st.Bfree * bs, st.Bavail * bs, nil
+	unit := blockSize(&st)
+	return st.Blocks * unit, st.Bfree * unit, st.Bavail * unit, nil
 }
 
-// Usage returns a model.Usage for a path.
+// Usage returns a model.Usage for a path, using the same conventions as df:
+//   - Used    = Blocks - Bfree          (blocks that are not free at all)
+//   - Free    = Total - Used
+//   - Avail   = Bavail                  (what this user may actually write)
+//   - Percent = Used / (Used + Avail)
+//
+// Reporting Bavail as the usable figure matters: ext4 and friends reserve a
+// slice of the filesystem for root, so Bfree overstates what the user can use.
 func Usage(path string) model.Usage {
+	path = fsx.Abs(path)
 	u := model.Usage{Path: path}
-	total, free, _, err := Statfs(path)
+	total, freeBlocks, avail, err := Statfs(path)
 	if err != nil {
 		return u
 	}
 	u.Total = total
-	u.Free = free
-	if total > 0 {
-		u.Used = total - free
-		u.Percent = float64(u.Used) / float64(total) * 100
+	u.Used = total - freeBlocks
+	u.Free = freeBlocks
+	u.Available = avail
+	if denom := u.Used + u.Available; denom > 0 {
+		u.Percent = float64(u.Used) / float64(denom) * 100
 	}
-	for _, m := range readMounts() {
-		if m.path == path {
-			u.FsType = m.fsType
-			break
-		}
+	if mount, ok := MountFor(path); ok {
+		u.FsType = mount.fsType
+		u.Mount = mount.path
 	}
 	return u
 }
@@ -281,11 +364,14 @@ func Drives() []model.Drive {
 			}
 		}
 		d.System = isSystemMount(m.path)
-		if total, free, _, err := Statfs(m.path); err == nil && total > 0 {
+		if total, freeBlocks, avail, err := Statfs(m.path); err == nil && total > 0 {
 			d.Total = total
-			d.Free = free
-			d.Used = total - free
-			d.Percent = float64(d.Used) / float64(total) * 100
+			d.Used = total - freeBlocks
+			d.Free = freeBlocks
+			d.Available = avail
+			if denom := d.Used + avail; denom > 0 {
+				d.Percent = float64(d.Used) / float64(denom) * 100
+			}
 		}
 		out = append(out, d)
 	}
@@ -372,6 +458,7 @@ func readDeviceLabel(dev string) string {
 // Eject unmounts a removable drive using udisksctl when available and falls
 // back to plain umount.
 func Eject(path string) error {
+	defer invalidateMounts()
 	if _, err := exec.LookPath("udisksctl"); err == nil {
 		if err := exec.Command("udisksctl", "unmount", "-b", path).Run(); err == nil {
 			return nil
@@ -387,6 +474,7 @@ func Eject(path string) error {
 
 // Mount asks udisksctl to mount a device or mount point.
 func Mount(path string) error {
+	defer invalidateMounts()
 	if _, err := exec.LookPath("udisksctl"); err == nil {
 		if err := exec.Command("udisksctl", "mount", "-b", path).Run(); err == nil {
 			return nil

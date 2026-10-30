@@ -7,37 +7,52 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/R0N1n-dev/mura-files/internal/model"
 )
 
-// ownerCache avoids repeated lookups of the same uid/gid.
+// Owner and group names are resolved once per id and cached. Directory
+// listings run concurrently (one per tab, plus the sidebar tree), so the
+// caches must be synchronised: an unsynchronised map here is a hard crash
+// waiting to happen.
 var (
+	idMu     sync.RWMutex
 	uidCache = map[uint32]string{}
 	gidCache = map[uint32]string{}
 )
 
 func ownerName(uid uint32) string {
-	if n, ok := uidCache[uid]; ok {
-		return n
+	idMu.RLock()
+	name, ok := uidCache[uid]
+	idMu.RUnlock()
+	if ok {
+		return name
 	}
-	name := strconv.FormatUint(uint64(uid), 10)
+	name = strconv.FormatUint(uint64(uid), 10)
 	if u, err := user.LookupId(name); err == nil && u.Username != "" {
 		name = u.Username
 	}
+	idMu.Lock()
 	uidCache[uid] = name
+	idMu.Unlock()
 	return name
 }
 
 func groupName(gid uint32) string {
-	if n, ok := gidCache[gid]; ok {
-		return n
+	idMu.RLock()
+	name, ok := gidCache[gid]
+	idMu.RUnlock()
+	if ok {
+		return name
 	}
-	name := strconv.FormatUint(uint64(gid), 10)
+	name = strconv.FormatUint(uint64(gid), 10)
 	if g, err := user.LookupGroupId(name); err == nil && g.Name != "" {
 		name = g.Name
 	}
+	idMu.Lock()
 	gidCache[gid] = name
+	idMu.Unlock()
 	return name
 }
 

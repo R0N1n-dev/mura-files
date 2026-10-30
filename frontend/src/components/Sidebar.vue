@@ -5,7 +5,7 @@ import {
   state, activeTab, navigate, newTab, showTrash, addBookmark, removeBookmark,
   renameBookmark, reorderBookmarks, ejectDrive, refreshDrives, openContextMenu,
   openInTerminal, copyPathToClipboard, toggleTreeNode, loadTreeNode, expandTreeTo,
-  openPrompt, openDialog, showProperties,
+  openPrompt, openDialog, showProperties, calculateFolderSizes, makeLink,
 } from '../store/app.js';
 import { formatSize } from '../lib/format.js';
 
@@ -43,7 +43,10 @@ function driveIcon(drive) {
 
 function usageLabel(drive) {
   if (!drive.total) return drive.fsType || '';
-  return `${formatSize(drive.free)} free of ${formatSize(drive.total)}`;
+  // "available" is what the user can actually write, which is what matters in
+  // a sidebar readout; "free" includes blocks reserved for root.
+  const usable = drive.available ?? drive.free;
+  return `${formatSize(usable)} free of ${formatSize(drive.total)}`;
 }
 
 /* ------------------------------ context menus ---------------------------- */

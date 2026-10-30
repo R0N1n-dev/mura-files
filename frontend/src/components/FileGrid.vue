@@ -3,7 +3,7 @@ import { computed, ref, nextTick, watch } from 'vue';
 import Icon from './Icon.vue';
 import {
   state, activeTab, selectEntry, openEntry, startRename, commitRename, cancelRename,
-  openContextMenu, buildEntryMenu, dropInto, setSelection,
+  openContextMenu, buildEntryMenu, dropInto, setSelection, folderSize,
 } from '../store/app.js';
 import { formatSize, formatDate, splitName } from '../lib/format.js';
 import { thumbUrl, iconUrl } from '../lib/fs.js';
@@ -121,7 +121,13 @@ function nameParts(entry) {
 }
 
 function metaLabel(entry) {
-  if (entry.isDir) return formatDate(entry.modTime, 'auto');
+  if (entry.isDir) {
+    const bytes = folderSize(entry.path);
+    if (bytes !== null && bytes !== undefined) {
+      return formatSize(bytes, { base: state.settings.sizeFormat === 'decimal' ? 'decimal' : 'binary' });
+    }
+    return formatDate(entry.modTime, 'auto');
+  }
   return formatSize(entry.size, { base: state.settings.sizeFormat === 'decimal' ? 'decimal' : 'binary' });
 }
 </script>

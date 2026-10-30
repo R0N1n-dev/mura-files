@@ -107,6 +107,19 @@ export function CreateFile(parent, name, content) {
 }
 
 /**
+ * CreateLink creates a symbolic link pointing at target, named linkName, in the
+ * same folder as target. Passing an empty name derives a sensible default.
+ * @param {string} target
+ * @param {string} linkName
+ * @returns {$CancellablePromise<model$0.Entry>}
+ */
+export function CreateLink(target, linkName) {
+    return $Call.ByID(945749559, target, linkName).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType6($result);
+    }));
+}
+
+/**
  * DesktopMeta reads the display name and icon for a .desktop file.
  * @param {string} path
  * @returns {$CancellablePromise<[string, string]>}
@@ -132,6 +145,18 @@ export function Drives() {
  */
 export function Exists(path) {
     return $Call.ByID(3351679091, path);
+}
+
+/**
+ * FolderSizes starts a background job that computes the recursive size of each
+ * folder in paths. Progress is streamed on the "fs:folder-size" event, one
+ * message per folder, and the job appears in the operation queue so it can be
+ * cancelled. It returns the job identifier.
+ * @param {string[]} paths
+ * @returns {$CancellablePromise<string>}
+ */
+export function FolderSizes(paths) {
+    return $Call.ByID(700304023, paths);
 }
 
 /**

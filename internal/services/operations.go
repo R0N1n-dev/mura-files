@@ -14,6 +14,7 @@ import (
 	"github.com/R0N1n-dev/mura-files/internal/model"
 	"github.com/R0N1n-dev/mura-files/internal/ops"
 	"github.com/R0N1n-dev/mura-files/internal/places"
+	"github.com/R0N1n-dev/mura-files/internal/undo"
 )
 
 // OperationService runs copy, move, delete and archive jobs.
@@ -87,7 +88,8 @@ func (s *OperationService) Delete(paths []string, opts model.DeleteOptions) (str
 			abs := fsx.Abs(p)
 			r.SetCurrent(abs)
 			if !opts.Permanent {
-				if _, err := places.TrashPath(abs); err != nil {
+				infoPath, err := places.TrashPath(abs)
+				if err != nil {
 					r.Error(fmt.Errorf("%s: %s", filepath.Base(abs), fsx.FriendlyError(err)))
 					if firstErr == nil {
 						firstErr = err
@@ -95,6 +97,8 @@ func (s *OperationService) Delete(paths []string, opts model.DeleteOptions) (str
 					if !opts.SkipErrors {
 						return err
 					}
+				} else {
+					r.RecordUndo(undo.KindTrash, "Move to Trash", model.UndoItem{From: abs, To: infoPath})
 				}
 			} else if err := os.RemoveAll(abs); err != nil {
 				r.Error(fmt.Errorf("%s: %s", filepath.Base(abs), fsx.FriendlyError(err)))
@@ -139,6 +143,7 @@ func (s *OperationService) Duplicate(paths []string) (string, error) {
 					}
 					continue
 				}
+				r.RecordUndo(undo.KindDuplicate, "Duplicate", model.UndoItem{To: filepath.Join(dir, candidate)})
 				r.Item(abs)
 			}
 			return firstErr
@@ -209,6 +214,9 @@ func (s *OperationService) Extract(archives []string, dest string) (string, erro
 					}
 					continue
 				}
+				if dest == "" {
+					r.RecordUndo(undo.KindCreate, "Extract", model.UndoItem{To: target})
+				}
 				r.Item(abs)
 			}
 			return firstErr
@@ -235,8 +243,18 @@ func (s *OperationService) ClearFinished() { s.rt.Ops.ClearFinished() }
 func (s *OperationService) transfer(ctx context.Context, r *ops.Reporter, sources []string,
 	dest string, opts model.TransferOptions, move bool) error {
 
-	plan, totalBytes, totalItems := buildPlan(sources, dest)
-	r.SetTotal(totalItems, totalBytes)
+	// Planning only resolves destination names; it deliberately does not walk
+	// the tree. Walking here used to block the Wails call goroutine for seconds
+	// on large folders, which made the whole window feel frozen before the job
+	// had even started.
+	plan := buildPlan(sources, dest)
+	r.SetTotal(len(plan), 0)
+
+	// Estimate the byte total inside the worker, where blocking is harmless,
+	// and report it so the progress bar can show a speed and an ETA.
+	if items, bytes := estimateTotals(ctx, plan); items > 0 || bytes > 0 {
+		r.SetTotal(items, bytes)
+	}
 
 	var firstErr error
 	for _, item := range plan {
@@ -257,7 +275,7 @@ func (s *OperationService) transfer(ctx context.Context, r *ops.Reporter, source
 			RenameOnConflict: false,
 			SkipErrors:       opts.SkipErrors,
 		}
-		progress := func(current string, done, doneTotal int64, items, total int) {
+		progress := func(current string, done, doneTotal int64, items, itemTotal int) {
 			r.SetCurrent(current)
 			if done > 0 {
 				r.Bytes(done)
@@ -279,9 +297,32 @@ func (s *OperationService) transfer(ctx context.Context, r *ops.Reporter, source
 			}
 			continue
 		}
+		if move {
+			r.RecordUndo(undo.KindMove, "Move", model.UndoItem{From: item.src, To: item.dst})
+		}
 		r.Item(item.src)
 	}
 	return firstErr
+}
+
+// estimateTotals walks the sources with a generous cap to size the progress
+// bar. It runs inside the job goroutine, and stops early when cancelled.
+func estimateTotals(ctx context.Context, plan []transferItem) (int, int64) {
+	const cap = 60000
+	items := 0
+	var bytes int64
+	for _, item := range plan {
+		if item.skip {
+			continue
+		}
+		if ctx.Err() != nil {
+			return items, bytes
+		}
+		files, dirs, links, size, _ := fsop.TreeSize(ctx, item.src, cap)
+		items += int(files + dirs + links)
+		bytes += size
+	}
+	return items, bytes
 }
 
 type transferItem struct {
@@ -293,10 +334,8 @@ type transferItem struct {
 
 // buildPlan resolves destination names and conflict handling up front so the
 // UI can show an accurate item and byte total.
-func buildPlan(sources []string, dest string) ([]transferItem, int64, int) {
+func buildPlan(sources []string, dest string) []transferItem {
 	plan := make([]transferItem, 0, len(sources))
-	var totalBytes int64
-	totalItems := 0
 
 	// Track names already claimed in this batch to avoid collisions between
 	// two sources with the same basename.
@@ -318,13 +357,9 @@ func buildPlan(sources []string, dest string) ([]transferItem, int64, int) {
 			item.dst = unique
 		}
 		claimed[item.dst] = true
-
-		files, dirs, _, bytes, _ := fsop.TreeSize(context.Background(), src, 50000)
-		totalItems += int(files + dirs + 1)
-		totalBytes += bytes
 		plan = append(plan, item)
 	}
-	return plan, totalBytes, totalItems
+	return plan
 }
 
 // validateTransfer rejects obviously wrong transfers before starting a job.

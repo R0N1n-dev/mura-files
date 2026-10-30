@@ -92,6 +92,14 @@ export function ClearThumbnailCache() {
 }
 
 /**
+ * ClearUndo forgets the undo history.
+ * @returns {$CancellablePromise<void>}
+ */
+export function ClearUndo() {
+    return $Call.ByID(2784926357);
+}
+
+/**
  * CloseWindow closes the main window, quitting the application.
  * @returns {$CancellablePromise<void>}
  */
@@ -175,6 +183,15 @@ export function Execute(command, dir) {
     return $Call.ByID(2922140593, command, dir).then(/** @type {($result: any) => any} */(($result) => {
         return $$createType7($result);
     }));
+}
+
+/**
+ * FolderSizes starts a background job that measures the given folders.
+ * @param {string[]} paths
+ * @returns {$CancellablePromise<string>}
+ */
+export function FolderSizes(paths) {
+    return $Call.ByID(1085789008, paths);
 }
 
 /**
@@ -444,6 +461,32 @@ export function UnMaximise() {
 }
 
 /**
+ * Undo reverses the most recent reversible operation.
+ * @returns {$CancellablePromise<model$0.UndoResult>}
+ */
+export function Undo() {
+    return $Call.ByID(3418165312).then(/** @type {($result: any) => any} */(($result) => {
+        return $$createType13($result);
+    }));
+}
+
+/**
+ * UndoDepth reports how many operations can still be taken back.
+ * @returns {$CancellablePromise<number>}
+ */
+export function UndoDepth() {
+    return $Call.ByID(1249033957);
+}
+
+/**
+ * UndoLabel describes the operation that would be undone next.
+ * @returns {$CancellablePromise<string>}
+ */
+export function UndoLabel() {
+    return $Call.ByID(2887560478);
+}
+
+/**
  * Version returns the application version string.
  * @returns {$CancellablePromise<string>}
  */
@@ -457,7 +500,7 @@ export function Version() {
  */
 export function WindowState() {
     return $Call.ByID(3158759971).then(/** @type {($result: any) => any} */(($result) => {
-        return $$createType13($result);
+        return $$createType14($result);
     }));
 }
 
@@ -475,4 +518,5 @@ const $$createType9 = model$0.TrashEntry.createFrom;
 const $$createType10 = $Create.Array($$createType9);
 const $$createType11 = model$0.Settings.createFrom;
 const $$createType12 = model$0.ThemeInfo.createFrom;
-const $$createType13 = model$0.WindowState.createFrom;
+const $$createType13 = model$0.UndoResult.createFrom;
+const $$createType14 = model$0.WindowState.createFrom;

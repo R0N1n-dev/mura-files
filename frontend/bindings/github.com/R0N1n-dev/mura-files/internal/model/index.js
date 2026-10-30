@@ -14,6 +14,7 @@ export {
     DirListing,
     Drive,
     Entry,
+    FolderSize,
     ListOptions,
     OSInfo,
     OpProgress,
@@ -28,6 +29,7 @@ export {
     Tool,
     TransferOptions,
     TrashEntry,
+    UndoResult,
     Usage,
     WindowState
 } from "./models.js";

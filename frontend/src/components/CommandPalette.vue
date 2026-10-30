@@ -6,7 +6,8 @@ import {
   createFolder, createFile, clipboardPaste, clipboardCopy, clipboardCut,
   selectAll, toggleHidden, setViewMode, setSort, openDialog, showTrash,
   addBookmark, deleteSelection, duplicateSelection, saveViewDefaults,
-  openInTerminal, emptyTrash, quit, openPathsInNewTab,
+  openInTerminal, emptyTrash, quit, openPathsInNewTab, undoLast,
+  reopenClosedTab, toggleOpsPanel, calculateSizeOfVisibleFolders, makeLink,
 } from '../store/app.js';
 
 const query = ref('');
@@ -38,6 +39,15 @@ const commands = computed(() => {
     { id: 'hidden', label: 'Toggle Hidden Files', hint: 'Ctrl+H', icon: 'eye', run: () => toggleHidden(tab.value) },
     { id: 'bookmark', label: 'Bookmark This Folder', icon: 'bookmark', run: () => addBookmark(tab.value?.path) },
     { id: 'terminal', label: 'Open in Terminal', icon: 'terminal', run: () => openInTerminal(tab.value?.path) },
+    { id: 'undo', label: 'Undo Last Operation', hint: 'Ctrl+Z', icon: 'restore', run: () => undoLast() },
+    { id: 'reopen-tab', label: 'Reopen Closed Tab', hint: 'Ctrl+Shift+T', icon: 'history', run: () => reopenClosedTab() },
+    { id: 'ops', label: 'Show Operation Queue', hint: 'Ctrl+J', icon: 'activity', run: () => toggleOpsPanel(true) },
+    { id: 'sizes', label: 'Calculate All Folder Sizes', icon: 'gauge', run: () => calculateSizeOfVisibleFolders(tab.value) },
+    { id: 'link', label: 'Make Link for Selected Item', icon: 'link', run: () => {
+        const current = tab.value;
+        const first = current && [...current.selected][0];
+        if (first) makeLink(first, current);
+      } },
     { id: 'trash', label: 'Open Trash', icon: 'trash', run: () => showTrash() },
     { id: 'empty-trash', label: 'Empty Trash', icon: 'trash-2', run: () => emptyTrash() },
     { id: 'save-view', label: 'Save View Settings as Default', icon: 'save', run: () => saveViewDefaults(tab.value) },

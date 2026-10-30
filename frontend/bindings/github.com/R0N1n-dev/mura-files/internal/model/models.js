@@ -599,6 +599,15 @@ export class Drive {
              */
             this["used"] = 0;
         }
+        if (!("available" in $$source)) {
+            /**
+             * Available is the space the user may write, which is smaller than Free on
+             * filesystems that reserve blocks for root.
+             * @member
+             * @type {number}
+             */
+            this["available"] = 0;
+        }
         if (!("percent" in $$source)) {
             /**
              * @member
@@ -894,6 +903,79 @@ export class Entry {
     static createFrom($$source = {}) {
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         return new Entry(/** @type {Partial<Entry>} */($$parsedSource));
+    }
+}
+
+/**
+ * FolderSize is streamed while the recursive size of a folder is computed.
+ */
+export class FolderSize {
+    /**
+     * Creates a new FolderSize instance.
+     * @param {Partial<FolderSize>} [$$source = {}] - The source object to create the FolderSize.
+     */
+    constructor($$source = {}) {
+        if (!("request" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["request"] = "";
+        }
+        if (!("path" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["path"] = "";
+        }
+        if (!("bytes" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["bytes"] = 0;
+        }
+        if (!("files" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["files"] = 0;
+        }
+        if (!("dirs" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["dirs"] = 0;
+        }
+        if (!("done" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["done"] = false;
+        }
+        if (!("error" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["error"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new FolderSize instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {FolderSize}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new FolderSize(/** @type {Partial<FolderSize>} */($$parsedSource));
     }
 }
 
@@ -2258,6 +2340,58 @@ export class TrashEntry {
 }
 
 /**
+ * UndoResult reports the outcome of an undo request.
+ */
+export class UndoResult {
+    /**
+     * Creates a new UndoResult instance.
+     * @param {Partial<UndoResult>} [$$source = {}] - The source object to create the UndoResult.
+     */
+    constructor($$source = {}) {
+        if (!("ok" in $$source)) {
+            /**
+             * @member
+             * @type {boolean}
+             */
+            this["ok"] = false;
+        }
+        if (!("label" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["label"] = "";
+        }
+        if (!("message" in $$source)) {
+            /**
+             * @member
+             * @type {string}
+             */
+            this["message"] = "";
+        }
+        if (!("count" in $$source)) {
+            /**
+             * @member
+             * @type {number}
+             */
+            this["count"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UndoResult instance from a string or object.
+     * @param {any} [$$source = {}]
+     * @returns {UndoResult}
+     */
+    static createFrom($$source = {}) {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UndoResult(/** @type {Partial<UndoResult>} */($$parsedSource));
+    }
+}
+
+/**
  * Usage reports disk usage for a path.
  */
 export class Usage {
@@ -2275,10 +2409,20 @@ export class Usage {
         }
         if (!("total" in $$source)) {
             /**
+             * Total is the size of the filesystem.
              * @member
              * @type {number}
              */
             this["total"] = 0;
+        }
+        if (!("used" in $$source)) {
+            /**
+             * Used and Free follow the df convention: Used = Total - Bfree and
+             * Free = Total - Used.
+             * @member
+             * @type {number}
+             */
+            this["used"] = 0;
         }
         if (!("free" in $$source)) {
             /**
@@ -2287,15 +2431,18 @@ export class Usage {
              */
             this["free"] = 0;
         }
-        if (!("used" in $$source)) {
+        if (!("available" in $$source)) {
             /**
+             * Available is the space this user may actually write, which is smaller
+             * than Free because most filesystems reserve blocks for root.
              * @member
              * @type {number}
              */
-            this["used"] = 0;
+            this["available"] = 0;
         }
         if (!("percent" in $$source)) {
             /**
+             * Percent mirrors df's Use% column: Used / (Used + Available).
              * @member
              * @type {number}
              */
@@ -2307,6 +2454,14 @@ export class Usage {
              * @type {string}
              */
             this["fsType"] = "";
+        }
+        if (!("mount" in $$source)) {
+            /**
+             * Mount is the mount point that contains Path.
+             * @member
+             * @type {string}
+             */
+            this["mount"] = "";
         }
 
         Object.assign(this, $$source);

@@ -15,6 +15,7 @@ import (
 	"github.com/R0N1n-dev/mura-files/internal/ops"
 	"github.com/R0N1n-dev/mura-files/internal/search"
 	"github.com/R0N1n-dev/mura-files/internal/thumbs"
+	"github.com/R0N1n-dev/mura-files/internal/undo"
 	"github.com/R0N1n-dev/mura-files/internal/watch"
 )
 
@@ -27,6 +28,8 @@ const (
 	EventNotify        = "app:notify"
 	EventOpenPath      = "app:open-path"
 	EventOpFinished    = "op:finished"
+	EventFolderSize    = "fs:folder-size"
+	EventUndo          = "app:undo"
 )
 
 // Notification is a small toast message pushed from the backend.
@@ -45,11 +48,15 @@ type Runtime struct {
 	Ops     *ops.Manager
 	Search  *search.Engine
 	Watcher *watch.Watcher
+	Undo    *undo.Stack
 
 	// watchEnabled mirrors the user setting so the watcher can be paused.
 	watchEnabled bool
 	// mainWindow is the primary webview window, used by the window controls.
 	mainWindow *application.WebviewWindow
+	// eventHook observes emitted events. It is used by tests and by the
+	// optional debug log, and runs in addition to the webview delivery.
+	eventHook func(name string, data ...any)
 }
 
 // NewRuntime wires the shared state together.
@@ -58,9 +65,16 @@ func NewRuntime(store *config.Store) *Runtime {
 		Config:       store,
 		Thumbs:       thumbs.New(),
 		Search:       search.New(),
+		Undo:         undo.New(),
 		watchEnabled: true,
 	}
 	rt.Ops = ops.NewManager(rt.emitOpProgress)
+	// Successful jobs feed their reversible record into the undo history, and
+	// the frontend is told so it can enable its Undo affordance.
+	rt.Ops.SetUndoRecorder(func(entry model.UndoEntry) {
+		rt.Undo.Push(entry)
+		rt.Emit(EventUndo)
+	})
 	return rt
 }
 
@@ -93,8 +107,21 @@ func (rt *Runtime) MainWindow() *application.WebviewWindow {
 	return rt.mainWindow
 }
 
+// SetEventHook installs an observer for every emitted event.
+func (rt *Runtime) SetEventHook(hook func(name string, data ...any)) {
+	rt.mu.Lock()
+	rt.eventHook = hook
+	rt.mu.Unlock()
+}
+
 // Emit sends a custom event to the frontend.
 func (rt *Runtime) Emit(name string, data ...any) {
+	rt.mu.RLock()
+	hook := rt.eventHook
+	rt.mu.RUnlock()
+	if hook != nil {
+		hook(name, data...)
+	}
 	if app := rt.App(); app != nil {
 		app.Event.Emit(name, data...)
 	}

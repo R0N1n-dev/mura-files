@@ -93,6 +93,26 @@ export const state = reactive({
   drag: { active: false, paths: [], over: '', external: false },
   conflict: null,
   notify: { drop: [] },
+
+  // Disk usage for the folder being browsed, refreshed whenever it changes.
+  usage: null,
+  usageLoading: false,
+
+  // Recursive folder sizes, keyed by path. Filled on demand.
+  folderSizes: {},
+  sizeRequests: {},
+
+  // Undo history depth and the label of the next undoable action.
+  undo: { depth: 0, label: '' },
+
+  // Recently closed tabs, most recent last.
+  closedTabs: [],
+
+  // The operation queue drawer.
+  opsPanel: { open: false },
+
+  // Type-ahead state for the file views.
+  typeAhead: { buffer: '', at: 0 },
 });
 
 /* ------------------------------------------------------------------------ */
@@ -229,6 +249,7 @@ export async function bootstrap() {
 
     applyTheme();
     restoreTabs();
+    refreshUndoState();
     wireBackendEvents();
     state.ready = true;
 
@@ -287,10 +308,12 @@ function wireBackendEvents() {
         scheduleReload(tab);
       }
     });
-    // Invalidate cached sidebar tree children for the changed folder.
+    // Invalidate cached sidebar tree children and folder sizes for the
+    // changed folder: both would otherwise keep showing stale numbers.
     if (state.tree.children[payload.dir]) {
       delete state.tree.children[payload.dir];
     }
+    invalidateSizes(payload.dir);
   });
 
   Events.On('app:notify', (event) => {
@@ -305,6 +328,22 @@ function wireBackendEvents() {
       refreshTheme();
     }
   });
+
+  Events.On('fs:folder-size', (event) => {
+    const size = event.data;
+    if (!size || !size.path) return;
+    state.folderSizes = {
+      ...state.folderSizes,
+      [size.path]: { bytes: size.bytes, files: size.files, dirs: size.dirs, error: size.error || '' },
+    };
+    if (state.sizeRequests[size.path] !== undefined) {
+      const pending = { ...state.sizeRequests };
+      delete pending[size.path];
+      state.sizeRequests = pending;
+    }
+  });
+
+  Events.On('app:undo', () => refreshUndoState());
 
   Events.On('app:open-path', (event) => {
     const raw = event.data;
@@ -465,6 +504,9 @@ export async function loadDirectory(tab, selectPath = '') {
     } else if (tab.selected.size === 0 && tab.entries.length && !tab.cursor) {
       tab.cursor = tab.entries[0].path;
     }
+    if (state.settings.showFolderSize) {
+      calculateSizeOfVisibleFolders(tab);
+    }
   } catch (error) {
     if (requestId !== tab.requestId) return;
     tab.error = describeError(error);
@@ -560,6 +602,11 @@ export function closeTab(id) {
   const index = state.tabs.findIndex((tab) => tab.id === id);
   if (index < 0) return;
   const wasActive = state.activeTabId === id;
+  const closed = state.tabs[index];
+  if (closed?.path) {
+    state.closedTabs.push({ path: closed.path, mode: closed.mode });
+    if (state.closedTabs.length > 20) state.closedTabs.shift();
+  }
   state.tabs.splice(index, 1);
 
   if (state.tabs.length === 0) {
@@ -575,6 +622,18 @@ export function closeTab(id) {
     selectTab(next.id);
   }
   persistSession();
+}
+
+/** Reopen the most recently closed tab. */
+export function reopenClosedTab() {
+  const last = state.closedTabs.pop();
+  if (!last) {
+    toast.info('No recently closed tabs');
+    return;
+  }
+  const tab = newTab(last.path);
+  if (last.mode === 'trash') showTrash();
+  return tab;
 }
 
 export function closeOtherTabs(id) {
@@ -823,6 +882,11 @@ function upsertOperation(progress) {
 
 function refreshActiveAfterOperation(progress) {
   if (progress.status === 'running') return;
+  // Free space and the undo history both change with every finished job, and
+  // any cached folder size is now suspect.
+  refreshUsage();
+  refreshUndoState();
+  state.sizeRequests = {};
   if (progress.kind === 'trash' || progress.kind === 'delete') {
     state.trash = state.trash.filter((entry) => !progress.current?.includes(entry.name));
   }
@@ -1632,6 +1696,18 @@ export function buildEntryMenu(entry) {
     disabled: !selection.length,
     run: () => createArchive(tab, 'zip'),
   });
+  items.push({
+    label: 'Calculate Folder Size',
+    icon: 'gauge',
+    disabled: !selection.length,
+    run: () => calculateFolderSizes(selection),
+  });
+  items.push({
+    label: 'Make Link',
+    icon: 'link',
+    disabled: multiple,
+    run: () => makeLink(entry.path, tab),
+  });
 
   items.push({ separator: true });
 
@@ -1682,6 +1758,8 @@ export function buildBackgroundMenu() {
     { label: 'New File', icon: 'file-plus', shortcut: 'Ctrl+Alt+N', run: () => createFile(tab) },
     { separator: true },
     { label: 'Paste', icon: 'paste', shortcut: 'Ctrl+V', disabled: !clipboardHasItems.value, run: () => clipboardPaste(tab) },
+    { label: 'Undo', icon: 'restore', shortcut: 'Ctrl+Z', disabled: !state.undo.depth, run: () => undoLast() },
+    { label: 'Calculate All Folder Sizes', icon: 'gauge', run: () => calculateSizeOfVisibleFolders(tab) },
     { label: 'Select All', icon: 'check', shortcut: 'Ctrl+A', run: () => selectAll(tab) },
     { separator: true },
     { label: 'Open in Terminal', icon: 'terminal', run: () => openInTerminal(tab?.path) },
@@ -1699,4 +1777,220 @@ export function buildBackgroundMenu() {
 /** Quick lookup of the entry for a path inside the active tab. */
 export function entryForPath(path) {
   return activeTab.value?.entries.find((entry) => entry.path === path) || null;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Disk usage                                                                */
+/* ------------------------------------------------------------------------ */
+
+let usageToken = 0;
+let usageTimer = null;
+
+/**
+ * Refresh the disk usage for the active tab's filesystem.
+ *
+ * The numbers come from statfs on the Go side, which mirrors df exactly: the
+ * arithmetic uses f_frsize, and the usable figure is Bavail rather than Bfree,
+ * so reserved-for-root blocks are not reported as free space.
+ */
+export async function refreshUsage() {
+  const path = activeTab.value?.path;
+  if (!path) {
+    state.usage = null;
+    return;
+  }
+  const token = ++usageToken;
+  state.usageLoading = true;
+  try {
+    const usage = await FileService.Usage(path);
+    if (token !== usageToken) return;
+    state.usage = usage && usage.total ? usage : null;
+  } catch {
+    if (token === usageToken) state.usage = null;
+  } finally {
+    if (token === usageToken) state.usageLoading = false;
+  }
+}
+
+/** Poll occasionally so the readout stays honest after external writes. */
+export function startUsagePolling(interval = 20000) {
+  if (usageTimer) clearInterval(usageTimer);
+  usageTimer = setInterval(() => {
+    if (!document.hidden) refreshUsage();
+  }, interval);
+}
+
+// Re-read as soon as the browsed folder changes, rather than waiting for the
+// next poll: switching to another drive should update the bar immediately.
+watch(() => activeTab.value?.path, () => refreshUsage());
+
+/* ------------------------------------------------------------------------ */
+/* Folder sizes                                                              */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Ask the backend to measure the recursive size of some folders.
+ *
+ * Results stream back on "fs:folder-size" and land in state.folderSizes, so a
+ * folder only needs measuring once per session unless it changes on disk.
+ */
+export async function calculateFolderSizes(paths) {
+  const dirs = [...new Set((paths || []).filter(Boolean))]
+    .filter((path) => !state.sizeRequests[path]);
+  if (!dirs.length) return;
+  const pending = { ...state.sizeRequests };
+  dirs.forEach((path) => { pending[path] = true; });
+  state.sizeRequests = pending;
+  try {
+    await FileService.FolderSizes(dirs);
+  } catch (error) {
+    const cleared = { ...state.sizeRequests };
+    dirs.forEach((path) => { delete cleared[path]; });
+    state.sizeRequests = cleared;
+    toast.error(describeError(error));
+  }
+}
+
+/** Measure every folder in the active tab, bounded so huge listings stay fast. */
+export async function calculateSizeOfVisibleFolders(tab = activeTab.value) {
+  if (!tab || tab.mode !== 'browse') return;
+  const dirs = tab.entries.filter((entry) => entry.isDir).map((entry) => entry.path);
+  if (!dirs.length || dirs.length > 400) return;
+  await calculateFolderSizes(dirs);
+}
+
+/** Forget cached sizes for a folder and everything beneath it. */
+function invalidateSizes(dir) {
+  if (!dir) {
+    state.folderSizes = {};
+    return;
+  }
+  const next = { ...state.folderSizes };
+  Object.keys(next).forEach((path) => {
+    if (path === dir || isInside(dir, path)) delete next[path];
+  });
+  state.folderSizes = next;
+}
+
+function isInside(parent, child) {
+  if (!parent || !child) return false;
+  if (parent === '/') return child.startsWith('/');
+  return child.startsWith(`${parent}/`);
+}
+
+/** Recursive size of a folder, or null when it has not been measured yet. */
+export function folderSize(path) {
+  const known = state.folderSizes[path];
+  return known ? known.bytes : null;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Undo                                                                      */
+/* ------------------------------------------------------------------------ */
+
+export async function refreshUndoState() {
+  try {
+    const [depth, label] = await Promise.all([
+      AppService.UndoDepth(),
+      AppService.UndoLabel(),
+    ]);
+    state.undo = { depth: Number(depth) || 0, label: label || '' };
+  } catch {
+    state.undo = { depth: 0, label: '' };
+  }
+}
+
+export const canUndo = computed(() => state.undo.depth > 0);
+
+/** Take back the most recent reversible operation. */
+export async function undoLast() {
+  if (!state.undo.depth) {
+    toast.info('Nothing to undo');
+    return;
+  }
+  try {
+    const result = await AppService.Undo();
+    if (result?.ok) {
+      toast.success(result.message || 'Undone');
+    } else if (result?.message) {
+      toast.warn(result.message);
+    }
+    // Anything the undo touched may have changed sizes and free space.
+    state.folderSizes = {};
+    await refreshUndoState();
+    await refreshUsage();
+    state.tabs.forEach((tab) => {
+      if (tab.mode === 'browse' && !tab.loading) scheduleReload(tab);
+    });
+  } catch (error) {
+    toast.error(describeError(error));
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Symbolic links                                                            */
+/* ------------------------------------------------------------------------ */
+
+/** Create a symbolic link beside the given target. */
+export function makeLink(target, tab = activeTab.value) {
+  if (!target) return;
+  const base = target.split('/').pop() || 'item';
+  const dot = base.lastIndexOf('.');
+  const suggested = dot > 0 ? base.slice(0, dot) + ' link' + base.slice(dot) : base + ' link';
+  openPrompt({
+    title: 'Make Link',
+    label: 'Link name',
+    value: suggested,
+    confirmLabel: 'Create',
+    selectStem: true,
+    hint: 'Creates a symbolic link pointing at ' + base,
+    onConfirm: async (name) => {
+      try {
+        const entry = await FileService.CreateLink(target, name);
+        if (tab) await loadDirectory(tab, entry?.path);
+        toast.success('Link created');
+      } catch (error) {
+        toast.error(describeError(error));
+      }
+    },
+  });
+}
+
+/* ------------------------------------------------------------------------ */
+/* Operation queue drawer                                                    */
+/* ------------------------------------------------------------------------ */
+
+export function toggleOpsPanel(open) {
+  state.opsPanel.open = open === undefined ? !state.opsPanel.open : !!open;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Type-ahead                                                                */
+/* ------------------------------------------------------------------------ */
+
+let typeAheadTimer = null;
+
+/**
+ * Incremental "type to find", matching what every desktop file manager has done
+ * for decades. Typing appends to a buffer that expires after a pause, and the
+ * first matching entry is selected and scrolled into view.
+ */
+export function typeAhead(character, tab = activeTab.value) {
+  if (!tab || !tab.entries.length || !character) return;
+  const now = Date.now();
+  const fresh = now - state.typeAhead.at > 900;
+  const buffer = fresh ? character : state.typeAhead.buffer + character;
+  state.typeAhead = { buffer, at: now };
+
+  if (typeAheadTimer) clearTimeout(typeAheadTimer);
+  typeAheadTimer = setTimeout(() => {
+    state.typeAhead = { buffer: '', at: 0 };
+  }, 1400);
+
+  const needle = buffer.toLowerCase();
+  const match = tab.entries.find((entry) => entry.name.toLowerCase().startsWith(needle)) ||
+    tab.entries.find((entry) => entry.name.toLowerCase().includes(needle));
+  if (!match) return;
+  selectEntry(tab, match, {});
+  scrollEntryIntoView(match.path);
 }

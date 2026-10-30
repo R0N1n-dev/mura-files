@@ -41,6 +41,14 @@ type Op struct {
 	finished bool
 	lastSize int64
 	lastTime time.Time
+
+	// record receives the undo entry once the job succeeds.
+	record func(model.UndoEntry)
+
+	// undo accumulates the reversible changes this job made.
+	undoKind  string
+	undoLabel string
+	undo      []model.UndoItem
 }
 
 // Manager owns the set of running jobs.
@@ -50,6 +58,7 @@ type Manager struct {
 	order   []string
 	seq     atomic.Uint64
 	emitter Emitter
+	onUndo  func(model.UndoEntry)
 }
 
 // NewManager creates an operation manager.
@@ -62,6 +71,20 @@ func (m *Manager) SetEmitter(emitter Emitter) {
 	m.mu.Lock()
 	m.emitter = emitter
 	m.mu.Unlock()
+}
+
+// SetUndoRecorder registers the sink that receives the reversible record of
+// each successful job.
+func (m *Manager) SetUndoRecorder(record func(model.UndoEntry)) {
+	m.mu.Lock()
+	m.onUndo = record
+	m.mu.Unlock()
+}
+
+func (m *Manager) undoRecorder() func(model.UndoEntry) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.onUndo
 }
 
 // Worker is the body of a background job.
@@ -88,6 +111,7 @@ func (m *Manager) Start(kind, title string, totalItems int, worker Worker) strin
 			Errors:     []string{},
 		},
 		lastTime: time.Now(),
+		record:   m.undoRecorder(),
 	}
 
 	m.mu.Lock()
@@ -217,8 +241,16 @@ func (o *Op) finish(err error) {
 	emitter := o.emitter
 	snapshot := o.progress
 	snapshot.Errors = append([]string{}, o.progress.Errors...)
+	completed := err == nil && len(o.undo) > 0
+	record := model.UndoEntry{Kind: o.undoKind, Label: o.undoLabel, Items: o.undo}
 	o.mu.Unlock()
 
+	// Commit the undo entry before announcing completion. Listeners that react
+	// to the final progress event (the Undo button becoming enabled, for
+	// example) then always see a consistent history.
+	if completed && o.record != nil {
+		o.record(record)
+	}
 	if emitter != nil {
 		emitter(snapshot)
 	}
@@ -322,6 +354,26 @@ func (r *Reporter) Error(err error) {
 
 // Context exposes the job context so workers can honour cancellation.
 func (r *Reporter) Context() context.Context { return r.op.ctx }
+
+// RecordUndo notes a reversible change made by this job. The entry is only
+// committed to the undo stack if the job finishes without error, so a partial
+// failure never leaves a misleading "undo" behind.
+func (r *Reporter) RecordUndo(kind, label string, item model.UndoItem) {
+	r.op.mu.Lock()
+	if r.op.undoKind == "" {
+		r.op.undoKind = kind
+		r.op.undoLabel = label
+	}
+	r.op.undo = append(r.op.undo, item)
+	r.op.mu.Unlock()
+}
+
+// UndoCount reports how many reversible changes have been recorded.
+func (r *Reporter) UndoCount() int {
+	r.op.mu.Lock()
+	defer r.op.mu.Unlock()
+	return len(r.op.undo)
+}
 
 func (r *Reporter) recomputeLocked() {
 	p := &r.op.progress

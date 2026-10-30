@@ -17,16 +17,18 @@ function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "app:notify": $$createType0,
         "app:theme": $$createType1,
-        "op:finished": $$createType2,
-        "op:progress": $$createType2,
-        "search:results": $$createType3,
+        "fs:folder-size": $$createType2,
+        "op:finished": $$createType3,
+        "op:progress": $$createType3,
+        "search:results": $$createType4,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = services$0.Notification.createFrom;
 const $$createType1 = model$0.ThemeInfo.createFrom;
-const $$createType2 = model$0.OpProgress.createFrom;
-const $$createType3 = model$0.SearchResults.createFrom;
+const $$createType2 = model$0.FolderSize.createFrom;
+const $$createType3 = model$0.OpProgress.createFrom;
+const $$createType4 = model$0.SearchResults.createFrom;
 
 configure();

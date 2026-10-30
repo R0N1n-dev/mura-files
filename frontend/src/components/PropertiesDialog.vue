@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import ModalShell from './ModalShell.vue';
 import Icon from './Icon.vue';
 import { state, closeProperties, computeChecksum } from '../store/app.js';
 import { formatSize, formatDate, describeKind, pluralise } from '../lib/format.js';
+import { FileService } from '../lib/fs.js';
 
 const checksumAlgo = ref('sha256');
 
@@ -35,6 +36,54 @@ function rowsFor(entry) {
 
 function runChecksum() {
   if (single.value) computeChecksum(single.value.path, checksumAlgo.value);
+}
+
+/* ----------------------------- permissions ------------------------------ */
+
+const PERM_COLS = ['Read', 'Write', 'Execute'];
+const PERM_ROWS = [
+  { label: 'Owner', bits: [8, 7, 6] },
+  { label: 'Group', bits: [5, 4, 3] },
+  { label: 'Other', bits: [2, 1, 0] },
+];
+
+const permBits = ref(0);
+const permSaving = ref(false);
+const permError = ref('');
+
+watch(() => props.value, (value) => {
+  const entry = value?.entries?.length === 1 ? value.entries[0] : null;
+  permBits.value = entry ? (entry.modeBits || 0) : 0;
+  permError.value = '';
+}, { immediate: true });
+
+const permOctal = computed(() => '0' + permBits.value.toString(8).padStart(3, '0'));
+
+function hasBit(shift) {
+  return (permBits.value & (1 << shift)) !== 0;
+}
+
+function toggleBit(shift) {
+  const mask = 1 << shift;
+  permBits.value = hasBit(shift) ? permBits.value & ~mask : permBits.value | mask;
+}
+
+async function applyPermissions() {
+  if (!single.value) return;
+  permSaving.value = true;
+  permError.value = '';
+  try {
+    await FileService.Chmod(single.value.path, permBits.value);
+    const updated = await FileService.Stat(single.value.path);
+    if (props.value && updated) {
+      props.value.entries.splice(0, 1, updated);
+    }
+    permBits.value = updated?.modeBits ?? permBits.value;
+  } catch (error) {
+    permError.value = String(error?.message || error);
+  } finally {
+    permSaving.value = false;
+  }
 }
 </script>
 
@@ -85,6 +134,43 @@ function runChecksum() {
         </div>
         <div class="progress">
           <span :style="{ width: `${Math.min(100, props.usage.percent || 0)}%` }" />
+        </div>
+      </div>
+
+      <div v-if="single" class="prop-perms">
+        <div class="prop-perms-head">
+          <span>Permissions</span>
+          <span class="mono faint">{{ permOctal }}</span>
+        </div>
+        <div class="perm-grid">
+          <span />
+          <span v-for="column in PERM_COLS" :key="column" class="perm-col faint">{{ column }}</span>
+          <template v-for="row in PERM_ROWS" :key="row.label">
+            <span class="perm-row-label faint">{{ row.label }}</span>
+            <button
+              v-for="bit in row.bits"
+              :key="bit"
+              class="check"
+              :class="{ 'is-on': hasBit(bit) }"
+              type="button"
+              :aria-label="`Toggle bit ${bit}`"
+              @click="toggleBit(bit)"
+            >
+              <Icon name="check" :size="11" :stroke="2.6" />
+            </button>
+          </template>
+        </div>
+        <div class="prop-perms-foot">
+          <span v-if="permError" class="perm-error">{{ permError }}</span>
+          <span v-else class="field-hint">Applied to this item only.</span>
+          <button
+            class="btn btn-sm btn-outline"
+            type="button"
+            :disabled="permSaving"
+            @click="applyPermissions"
+          >
+            {{ permSaving ? 'Applying…' : 'Apply' }}
+          </button>
         </div>
       </div>
 
@@ -153,6 +239,30 @@ function runChecksum() {
   font-size: var(--fs-xs);
   color: var(--text-muted);
 }
+
+.prop-perms { margin-bottom: var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); }
+.prop-perms-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.perm-grid {
+  display: grid;
+  grid-template-columns: 68px repeat(3, 44px);
+  gap: 6px;
+  align-items: center;
+}
+.perm-col, .perm-row-label { font-size: var(--fs-xs); }
+.perm-row-label { color: var(--text-muted); }
+.prop-perms-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.perm-error { font-size: var(--fs-xs); color: var(--danger); }
 
 .prop-checksum { display: flex; flex-direction: column; gap: var(--s-2); }
 .prop-checksum-head {

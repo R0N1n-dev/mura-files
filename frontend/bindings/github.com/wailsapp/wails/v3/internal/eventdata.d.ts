@@ -18,6 +18,8 @@ declare module "@wailsio/runtime" {
             "app:notify": services$0.Notification;
             "app:open-path": string;
             "app:theme": model$0.ThemeInfo;
+            "app:undo": void;
+            "fs:folder-size": model$0.FolderSize;
             "op:finished": model$0.OpProgress;
             "op:progress": model$0.OpProgress;
             "search:results": model$0.SearchResults;

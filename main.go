@@ -46,6 +46,8 @@ func init() {
 	application.RegisterEvent[services.Notification](services.EventNotify)
 	application.RegisterEvent[string](services.EventOpenPath)
 	application.RegisterEvent[model.ThemeInfo](services.EventTheme)
+	application.RegisterEvent[model.FolderSize](services.EventFolderSize)
+	application.RegisterEvent[application.Void](services.EventUndo)
 }
 
 // singleInstanceOptions enables single instance hand-off, but only when a
@@ -78,7 +80,7 @@ func main() {
 	operationService := services.NewOperationService(rt)
 	searchService := services.NewSearchService(rt)
 	watchService := services.NewWatchService(rt)
-	appService := services.NewAppService(rt, version)
+	appService := services.NewAppService(rt, version, fileService)
 
 	assetHandler := assetfs.New(rt.Thumbs)
 

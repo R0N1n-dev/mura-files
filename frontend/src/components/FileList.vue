@@ -4,6 +4,7 @@ import Icon from './Icon.vue';
 import {
   state, activeTab, selectEntry, openEntry, setSort, startRename, commitRename,
   cancelRename, openContextMenu, dropInto, buildEntryMenu, showProperties,
+  folderSize,
 } from '../store/app.js';
 import { formatSize, formatDate, describeKind, splitName } from '../lib/format.js';
 import { thumbUrl, iconUrl } from '../lib/fs.js';
@@ -203,9 +204,17 @@ function nameParts(entry) {
 }
 
 function sizeLabel(entry) {
-  if (entry.isDir) return '--';
+  const base = state.settings.sizeFormat === 'decimal' ? 'decimal' : 'binary';
+  if (entry.isDir) {
+    // Directories only report a real size once somebody has asked for it;
+    // computing every folder eagerly would be far too expensive.
+    const bytes = folderSize(entry.path);
+    if (bytes !== null && bytes !== undefined) return formatSize(bytes, { base });
+    if (state.sizeRequests[entry.path]) return 'sizing…';
+    return '--';
+  }
   if (entry.isSymlink) return 'link';
-  return formatSize(entry.size, { base: state.settings.sizeFormat === 'decimal' ? 'decimal' : 'binary' });
+  return formatSize(entry.size, { base });
 }
 
 function dateLabel(entry) {

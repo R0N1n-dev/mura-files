@@ -1,8 +1,10 @@
 package fsx
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/R0N1n-dev/mura-files/internal/model"
@@ -278,6 +280,16 @@ func TestAncestorsAndContainment(t *testing.T) {
 	if !IsSameOrInside("/a", "/a") {
 		t.Error("a path must be inside itself")
 	}
+	// The root directory is the classic off-by-one: "/" + "/" is "//".
+	if !IsSameOrInside("/", "/tmp/file") {
+		t.Error("everything lives inside the root directory")
+	}
+	if !IsSameOrInside("/", "/") {
+		t.Error("the root must be inside itself")
+	}
+	if IsSameOrInside("/tmp", "/") {
+		t.Error("the root is not inside /tmp")
+	}
 }
 
 func TestComplete(t *testing.T) {
@@ -318,4 +330,39 @@ func names(entries []model.Entry) []string {
 		out = append(out, entry.Name)
 	}
 	return out
+}
+
+// TestConcurrentListings exercises the owner/group caches from many goroutines.
+// Without synchronisation this is a "concurrent map writes" crash, so it is
+// worth running with -race.
+func TestConcurrentListings(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 40; i++ {
+		mustWrite(t, filepath.Join(dir, fmt.Sprintf("f%02d.txt", i)), "x")
+	}
+	if err := os.Chmod(filepath.Join(dir, "f00.txt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				listing := List(dir, model.ListOptions{SortBy: "name"})
+				if listing.Total != 40 {
+					t.Errorf("Total = %d, want 40", listing.Total)
+					return
+				}
+				for _, entry := range listing.Entries {
+					if entry.Owner == "" || entry.Group == "" {
+						t.Errorf("owner/group missing for %s", entry.Name)
+						return
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
