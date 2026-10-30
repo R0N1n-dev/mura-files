@@ -24,7 +24,7 @@ import (
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
-var version = "0.1.0"
+var version = "0.2.0"
 
 // The compiled frontend is embedded into the binary.
 //

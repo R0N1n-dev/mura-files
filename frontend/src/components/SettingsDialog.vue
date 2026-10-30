@@ -218,6 +218,10 @@ loadCacheStats();
               <button class="switch" :class="{ 'is-on': state.settings.dirsFirst }" type="button" @click="toggle('dirsFirst')" />
             </label>
             <label class="row-item">
+              <span class="grow">Show folder sizes<small>Measures each folder in the background. Large listings are skipped.</small></span>
+              <button class="switch" :class="{ 'is-on': state.settings.showFolderSize }" type="button" @click="toggle('showFolderSize')" />
+            </label>
+            <label class="row-item">
               <span class="grow">Watch folders for live changes<small>Uses inotify to refresh the view when files change on disk.</small></span>
               <button class="switch" :class="{ 'is-on': state.settings.watchEnabled }" type="button" @click="toggle('watchEnabled')" />
             </label>

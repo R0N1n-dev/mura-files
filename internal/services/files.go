@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/R0N1n-dev/mura-files/internal/archive"
@@ -440,8 +441,11 @@ func (s *FileService) FolderSizes(paths []string) string {
 	}
 
 	label := fmt.Sprintf("Sizing %s", describeSizes(candidates))
-	var jobID string
-	jobID = s.rt.Ops.Start("size", label, len(candidates), func(ctx context.Context, r *ops.Reporter) error {
+	// The request token is generated before the job starts and captured by
+	// value. Reading the job id from inside the worker would race with the
+	// assignment below, because Start launches the goroutine before returning.
+	request := fmt.Sprintf("size-%d", time.Now().UnixNano())
+	jobID := s.rt.Ops.Start("size", label, len(candidates), func(ctx context.Context, r *ops.Reporter) error {
 		for _, dir := range candidates {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -449,7 +453,7 @@ func (s *FileService) FolderSizes(paths []string) string {
 			r.SetCurrent(dir)
 			files, dirs, _, bytes, truncated := fsop.TreeSize(ctx, dir, 5_000_000)
 			msg := model.FolderSize{
-				Request: jobID,
+				Request: request,
 				Path:    dir,
 				Bytes:   bytes,
 				Files:   files,

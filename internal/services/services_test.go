@@ -15,7 +15,27 @@ import (
 
 // newTestRuntime builds a Runtime with isolated config, cache and trash
 // directories, and an event hook that records everything emitted.
-func newTestRuntime(t *testing.T) (*Runtime, *[]captured) {
+// eventLog records emitted events from any goroutine.
+type eventLog struct {
+	mu    sync.Mutex
+	items []captured
+}
+
+func (l *eventLog) add(event captured) {
+	l.mu.Lock()
+	l.items = append(l.items, event)
+	l.mu.Unlock()
+}
+
+func (l *eventLog) snapshot() []captured {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	out := make([]captured, len(l.items))
+	copy(out, l.items)
+	return out
+}
+
+func newTestRuntime(t *testing.T) (*Runtime, *eventLog) {
 	t.Helper()
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
@@ -24,14 +44,11 @@ func newTestRuntime(t *testing.T) (*Runtime, *[]captured) {
 	t.Setenv("HOME", filepath.Join(base, "home"))
 
 	rt := NewRuntime(config.New())
-	var mu sync.Mutex
-	var events []captured
+	log := &eventLog{}
 	rt.SetEventHook(func(name string, data ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		events = append(events, captured{name: name, data: data})
+		log.add(captured{name: name, data: data})
 	})
-	return rt, &events
+	return rt, log
 }
 
 type captured struct {
@@ -239,7 +256,7 @@ func TestFolderSizesStreamsResults(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
-		for _, event := range snapshot(events) {
+		for _, event := range events.snapshot() {
 			if event.name != EventFolderSize {
 				continue
 			}
@@ -259,8 +276,8 @@ func TestFolderSizesStreamsResults(t *testing.T) {
 			if size.Files != 2 {
 				t.Errorf("Files = %d, want 2", size.Files)
 			}
-			if size.Request != jobID {
-				t.Errorf("Request = %q, want %q", size.Request, jobID)
+			if !strings.HasPrefix(size.Request, "size-") {
+				t.Errorf("Request = %q, want a generated size-* token", size.Request)
 			}
 			return
 		}
@@ -343,7 +360,7 @@ func TestUndoEmitsChangeEvent(t *testing.T) {
 	}
 
 	found := false
-	for _, event := range snapshot(events) {
+	for _, event := range events.snapshot() {
 		if event.name == EventFsChanged {
 			found = true
 		}
@@ -353,11 +370,6 @@ func TestUndoEmitsChangeEvent(t *testing.T) {
 	}
 }
 
-func snapshot(events *[]captured) []captured {
-	out := make([]captured, len(*events))
-	copy(out, *events)
-	return out
-}
 
 // undoApply is a tiny indirection so the tests read clearly.
 func undoApply(t *testing.T, entry model.UndoEntry) (model.UndoResult, error) {

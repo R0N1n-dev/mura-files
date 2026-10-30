@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,15 +41,36 @@ type Cache struct {
 
 	mu      sync.Mutex
 	pending map[string]*sync.WaitGroup
+	// slots bounds how many decodes run at once. Scrolling quickly through a
+	// folder of large photos would otherwise start a decode per visible tile
+	// and saturate every core.
+	slots chan struct{}
 }
 
 // New creates a thumbnail cache in the application cache directory.
 func New() *Cache {
 	dir := filepath.Join(places.CacheDir(), "thumbnails")
 	_ = os.MkdirAll(dir, 0o755)
-	c := &Cache{dir: dir, pending: map[string]*sync.WaitGroup{}}
+	c := &Cache{
+		dir:     dir,
+		pending: map[string]*sync.WaitGroup{},
+		slots:   make(chan struct{}, thumbnailWorkers()),
+	}
 	go c.trim()
 	return c
+}
+
+// thumbnailWorkers sizes the decode pool to roughly half the available cores,
+// which leaves headroom for the UI thread and the rest of the application.
+func thumbnailWorkers() int {
+	workers := runtime.NumCPU() / 2
+	if workers < 2 {
+		workers = 2
+	}
+	if workers > 8 {
+		workers = 8
+	}
+	return workers
 }
 
 // Dir exposes the cache directory, used by diagnostics.
@@ -164,6 +186,15 @@ func (c *Cache) Get(path string, size int) (string, error) {
 		c.mu.Unlock()
 		wg.Done()
 	}()
+
+	// Wait for a decode slot, giving up if the request is abandoned.
+	c.slots <- struct{}{}
+	defer func() { <-c.slots }()
+
+	// Another request may have finished the work while we queued.
+	if st, err := os.Stat(target); err == nil && st.Size() > 0 {
+		return target, nil
+	}
 
 	src, err := decodeImage(path)
 	if err != nil {

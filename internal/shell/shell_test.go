@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDetectTerminalHonoursEnvironment(t *testing.T) {
@@ -187,5 +188,51 @@ func TestHostAndUser(t *testing.T) {
 	}
 	if KernelVersion() == "" {
 		t.Error("KernelVersion should never be empty")
+	}
+}
+
+func TestDesktopMetaCacheInvalidates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cached.desktop")
+	base := "[Desktop Entry]\nName=First\nExec=first\nIcon=first-icon\n"
+	if err := os.WriteFile(path, []byte(base), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	name, icon := DesktopMeta(path)
+	if name != "First" || icon != "first-icon" {
+		t.Fatalf("DesktopMeta = (%q, %q)", name, icon)
+	}
+
+	// A second read should hit the cache and return the same answer.
+	if name, _ := DesktopMeta(path); name != "First" {
+		t.Errorf("cached read returned %q", name)
+	}
+
+	// Rewriting the file must invalidate the cached entry.
+	updated := "[Desktop Entry]\nName=Second\nExec=second\nIcon=second-icon\n"
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Make sure the modification time actually changes on coarse filesystems.
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	name, icon = DesktopMeta(path)
+	if name != "Second" || icon != "second-icon" {
+		t.Errorf("cache did not invalidate: (%q, %q)", name, icon)
+	}
+
+	ForgetDesktopMeta(path)
+	if name, _ := DesktopMeta(path); name != "Second" {
+		t.Errorf("re-reading after a manual invalidation returned %q", name)
+	}
+}
+
+func TestDesktopMetaMissingFile(t *testing.T) {
+	if name, icon := DesktopMeta("/definitely/missing.desktop"); name != "" || icon != "" {
+		t.Error("a missing file should yield empty values")
 	}
 }

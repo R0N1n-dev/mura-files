@@ -1,11 +1,13 @@
 package thumbs
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -170,5 +172,49 @@ func TestRenderProducesJPEG(t *testing.T) {
 	}
 	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
 		t.Error("Render should emit a JPEG stream")
+	}
+}
+
+// TestConcurrentThumbnails exercises the decode pool: many simultaneous
+// requests for different images must all succeed and stay within the worker
+// bound. Run with -race to check the cache bookkeeping too.
+func TestConcurrentThumbnails(t *testing.T) {
+	cache := newCache(t)
+	dir := t.TempDir()
+	paths := make([]string, 0, 12)
+	for i := 0; i < 12; i++ {
+		paths = append(paths, makePNG(t, dir, fmt.Sprintf("img%02d.png", i), 200+i, 150+i,
+			color.RGBA{R: uint8(i * 20), G: 100, B: 200, A: 255}))
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, len(paths)*2)
+	for round := 0; round < 2; round++ {
+		for _, path := range paths {
+			wg.Add(1)
+			go func(p string) {
+				defer wg.Done()
+				if _, err := cache.Get(p, 96); err != nil {
+					errs <- err
+				}
+			}(path)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent thumbnail failed: %v", err)
+	}
+
+	count, _ := cache.Stat()
+	if count != len(paths) {
+		t.Errorf("cached %d thumbnails, want %d", count, len(paths))
+	}
+}
+
+func TestThumbnailWorkerBound(t *testing.T) {
+	workers := thumbnailWorkers()
+	if workers < 2 || workers > 8 {
+		t.Errorf("thumbnailWorkers() = %d, expected between 2 and 8", workers)
 	}
 }

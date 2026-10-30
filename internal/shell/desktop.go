@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/R0N1n-dev/mura-files/internal/model"
 	"github.com/R0N1n-dev/mura-files/internal/places"
@@ -207,11 +208,48 @@ func sanitiseExec(exec string) []string {
 	return out
 }
 
+// desktopMetaEntry is a cached parse result, invalidated by mtime and size.
+type desktopMetaEntry struct {
+	name  string
+	icon  string
+	mtime int64
+	size  int64
+}
+
+var desktopMetaCache sync.Map // path -> desktopMetaEntry
+
 // DesktopMeta returns the display name and icon name for a .desktop file.
+//
+// The result is cached per file, keyed on its modification time and size. A
+// folder like /usr/share/applications holds several hundred entries, and
+// re-parsing each of them on every listing showed up clearly in profiles.
 func DesktopMeta(path string) (name, icon string) {
-	entry, ok := parseDesktopFile(path)
-	if !ok {
+	info, err := os.Stat(path)
+	if err != nil {
 		return "", ""
 	}
-	return entry.Name, entry.Icon
+	mtime := info.ModTime().UnixNano()
+	size := info.Size()
+
+	if cached, ok := desktopMetaCache.Load(path); ok {
+		entry := cached.(desktopMetaEntry)
+		if entry.mtime == mtime && entry.size == size {
+			return entry.name, entry.icon
+		}
+	}
+
+	parsed, ok := parseDesktopFile(path)
+	if !ok {
+		// Remember the negative result too: a broken .desktop file is common
+		// and should not be re-parsed on every single listing.
+		desktopMetaCache.Store(path, desktopMetaEntry{mtime: mtime, size: size})
+		return "", ""
+	}
+	desktopMetaCache.Store(path, desktopMetaEntry{
+		name: parsed.Name, icon: parsed.Icon, mtime: mtime, size: size,
+	})
+	return parsed.Name, parsed.Icon
 }
+
+// ForgetDesktopMeta drops a cached entry, used when a file is rewritten.
+func ForgetDesktopMeta(path string) { desktopMetaCache.Delete(path) }

@@ -1165,7 +1165,9 @@ function handleSearchBatch(batch) {
   if (!tab) return;
 
   if (batch.entries?.length) {
-    tab.entries = tab.entries.concat(batch.entries);
+    // push rather than concat: concatenating re-copies the whole array on
+    // every batch, which is quadratic for searches with many thousands of hits.
+    tab.entries.push(...batch.entries);
   }
   tab.searchScanned = batch.scanned || tab.searchScanned;
   tab.searchFound = batch.found || tab.searchFound;
@@ -1834,9 +1836,9 @@ watch(() => activeTab.value?.path, () => refreshUsage());
  * Results stream back on "fs:folder-size" and land in state.folderSizes, so a
  * folder only needs measuring once per session unless it changes on disk.
  */
-export async function calculateFolderSizes(paths) {
+export async function calculateFolderSizes(paths, force = false) {
   const dirs = [...new Set((paths || []).filter(Boolean))]
-    .filter((path) => !state.sizeRequests[path]);
+    .filter((path) => force || (!state.sizeRequests[path] && !state.folderSizes[path]));
   if (!dirs.length) return;
   const pending = { ...state.sizeRequests };
   dirs.forEach((path) => { pending[path] = true; });

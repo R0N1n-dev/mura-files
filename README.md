@@ -8,6 +8,27 @@ Mura Files aims to be the file manager you actually want to keep: a calm, Nautil
 
 ---
 
+## Version 0.2 highlights
+
+- **Fixed:** the free-space readout in the status bar. It now uses the same
+  arithmetic as `df` (`f_frsize`, `f_bavail`, `used / (used + available)`) and
+  refreshes the moment you change folder, after every operation, and on a slow
+  poll — instead of showing another filesystem's numbers for up to 15 seconds.
+- **Fixed:** mount detection reported no filesystem when the browsed path was
+  not itself a mount point; it now walks up to the nearest containing mount.
+- **Fixed:** a data race in the owner/group name caches that could crash the
+  process under concurrent tab loads (verifiable with `-race`).
+- **Fixed:** `IsSameOrInside("/", …)` always returned false, which broke mount
+  attribution, recursion guards and some archive checks.
+- **New:** undo history (`Ctrl+Z`), folder sizes on demand, *Make Link*,
+  an rwx permission editor, an operation queue (`Ctrl+J`), reopen closed tab
+  (`Ctrl+Shift+T`) and type-ahead.
+- **Faster:** destination planning no longer walks the tree on the call path,
+  thumbnail decodes are bounded, `.desktop` parsing is cached, and the mount
+  table is cached instead of re-read on every poll.
+
+---
+
 ## Highlights
 
 ### Interface
@@ -21,13 +42,18 @@ Mura Files aims to be the file manager you actually want to keep: a calm, Nautil
 
 ### File handling
 - **Live updates.** An inotify watcher refreshes the view when files change on disk (toggleable).
-- **Background operations.** Copy, move, delete, duplicate, compress and extract run as cancellable jobs with a progress bar, transfer speed, ETA and a per-item error log.
+- **Background operations.** Copy, move, delete, duplicate, compress, extract and folder sizing run as cancellable jobs with a progress bar, transfer speed, ETA and a per-item error log. The **operation queue** (`Ctrl+J`) shows the whole history.
+- **Undo.** Trashing, moving, renaming, duplicating, extracting and creating files or folders can all be taken back with `Ctrl+Z`. Permanent deletion is deliberately *not* undoable, and says so.
 - **Copy / cut / paste**, including *paste into this folder* and *move to…* / *copy to…* through a native folder picker.
 - **Real Trash support.** Items go to the freedesktop trash (`~/.local/share/Trash` plus per-mount `.Trash-$uid`), and can be browsed, restored, restored elsewhere, or emptied from the app.
 - **Archives.** Browse zip and tar/tar.gz/tar.bz2 archives as if they were folders, extract them safely (path traversal is refused), and create new ones. 7z and rar are supported when `7z`/`unar` are installed.
+- **Symbolic links.** *Make Link* creates a relative link beside the target, named uniquely and undoable like any other creation.
+- **Folder sizes on demand.** Right-click any folder for *Calculate Folder Size*, or turn on *Settings → Browsing → Show folder sizes* to measure the whole listing. Sizes are computed in a cancellable background job, cached, and invalidated when the watcher sees a change.
 - **Search.** Recursive search with glob, regex, exact or substring matching; filters for size, extension, category, modification date; and optional full-text content search. Results stream in as they are found.
-- **Properties dialog** with recursive file/folder counts, total size, disk usage and on-demand checksums (SHA-256, SHA-1, MD5).
+- **Properties dialog** with recursive file/folder counts, total size, disk usage, an **rwx permission editor** and on-demand checksums (SHA-256, SHA-1, MD5).
 - **Desktop integration.** `.desktop` entries show their real application icon and launch on double click; *Open With* lists the applications registered for the file's MIME type.
+- **Type-ahead.** Just start typing a name to jump to it, the way desktop file managers have always worked.
+- **Reopen closed tabs** with `Ctrl+Shift+T`.
 
 ### Safety and comfort
 - Deletes go to the Trash by default, with confirmation before anything permanent.
@@ -119,12 +145,17 @@ cd frontend && npx vite build --mode production
 | `F2` | Rename |
 | `Enter` | Open the selection |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
+| `Ctrl+Z` | Undo the last reversible operation |
 | `Ctrl+D` | Duplicate |
 | `Delete` / `Shift+Delete` | Move to Trash / delete permanently |
 | `Ctrl+Shift+N` / `Ctrl+Alt+N` | New folder / new file |
-| `Alt+Enter` | Properties |
+| `Ctrl+Shift+T` | Reopen the last closed tab |
+| `Ctrl+J` | Show the operation queue |
+| `Alt+Enter` | Properties (including permissions) |
 | `Ctrl+,` / `Ctrl+/` | Settings / shortcut list |
 | `F12` | Developer tools |
+
+Type any printable character to jump to the matching file.
 
 ---
 
@@ -142,6 +173,7 @@ cd frontend && npx vite build --mode production
 │   ├── watch/                  debounced inotify watcher
 │   ├── archive/                zip and tar reading/writing, safe extraction
 │   ├── thumbs/                 image thumbnail rendering with an LRU disk cache
+│   ├── undo/                   bounded undo history for reversible operations
 │   ├── places/                 XDG places, mounts, freedesktop trash
 │   ├── shell/                  launching apps, terminals, .desktop parsing, icon themes
 │   ├── config/                 settings, bookmarks and session persistence
@@ -159,7 +191,7 @@ cd frontend && npx vite build --mode production
 The Go side owns everything that touches the filesystem. The Vue side owns presentation and interaction. They meet at two places:
 
 1. **Service bindings.** `internal/services` exposes small, focused facades (`FileService`, `OperationService`, `SearchService`, `WatchService`, `AppService`). `wails3 generate bindings` turns them into JavaScript modules under `frontend/bindings/`.
-2. **Events.** Long-running work streams progress back over the event bus (`op:progress`, `search:results`, `fs:changed`, `app:notify`).
+2. **Events.** Long-running work streams progress back over the event bus (`op:progress`, `op:finished`, `search:results`, `fs:changed`, `fs:folder-size`, `app:undo`, `app:notify`).
 
 The webview also gets three private routes from `internal/assetfs`:
 
@@ -170,10 +202,53 @@ The webview also gets three private routes from `internal/assetfs`:
 ### Design notes
 
 - **Sorting and filtering happen in Go.** Large folders never block the UI thread, and the frontend only renders what it is given.
+- **Disk usage matches `df` exactly.** `statfs` block counts are multiplied by `f_frsize` (not `f_bsize`, which is the preferred I/O size and disagrees on several filesystems), the usable figure is `f_bavail` rather than `f_bfree` so blocks reserved for root are not advertised as free, and the percentage is `used / (used + available)` like `df`'s Use% column. The readout re-queries as soon as you change folder, after every operation and on a slow background poll, so it is never stale.
 - **List rendering uses `content-visibility: auto`** rather than a JavaScript virtual scroller. Folders with tens of thousands of entries stay smooth without the complexity (and scroll-anchoring bugs) of windowing.
-- **Conflicts are resolved before the job starts.** `buildPlan` in `internal/services/operations.go` picks final destination names up front, so progress totals are accurate.
+- **Conflicts are resolved before the job starts.** Destination names are chosen up front, so progress totals are accurate — but the byte estimate is computed *inside* the job goroutine, because walking a large tree on the call path used to freeze the window for seconds before anything appeared to happen.
 - **Everything is cancellable.** A `context.Context` is threaded from the job manager down into the copy loop.
+- **Concurrency is bounded.** Thumbnail decoding runs on a small worker pool sized to half the available cores, so scrolling quickly through large photos cannot saturate the machine.
+- **Repeated work is cached with invalidation, not blindly.** `.desktop` parses are cached per file on mtime+size, the mount table is cached for two seconds, folder sizes are cached until the watcher reports a change in that subtree, and the uid/gid name lookups are cached behind a mutex.
+- **Undo records only what it can faithfully reverse.** The record is committed *before* the completion event is emitted, so a listener that reacts to "done" always sees a consistent history.
 - **No dependency on `gio`/`nautilus`.** Trash, mounts and launching are implemented directly against the freedesktop specifications, with `xdg-open`/`udisksctl`/`7z` used opportunistically when present.
+
+---
+
+## Performance
+
+The parts that matter when a folder has 50,000 entries, or when the disk is
+slow:
+
+| Area | What is done | Why |
+| --- | --- | --- |
+| Listing | `readdirnames` + one `lstat` per entry, sorted in Go | Avoids a round trip per item and keeps sorting off the UI thread |
+| Rendering | `content-visibility: auto` with an intrinsic row size | Off-screen rows cost no layout or paint, without a windowing library |
+| Copy/move | Destination names resolved up front; byte totals estimated inside the worker | The window never blocks before a job starts |
+| Thumbnails | Bounded decode pool (`cores / 2`, clamped to 2–8) + on-disk LRU cache | Fast scrolling cannot pin every core |
+| Folder sizes | Only on request, or bounded to 400 folders; streamed per folder; cached until the watcher sees a change | No surprise full-tree scans |
+| Search | Batched results (128 per event), early termination, `push` instead of `concat` | Linear cost as results arrive |
+| `.desktop` files | Parsed once per file, cached on mtime+size (including negative results) | `/usr/share/applications` no longer re-reads hundreds of files per listing |
+| Mount table | `/proc/mounts` cached for two seconds, invalidated on mount/eject | Disk-usage polling stops re-parsing it constantly |
+| Name lookups | uid/gid caches behind a `RWMutex` | Correct *and* fast under concurrent tab loads |
+
+Run the race detector to check the concurrency claims yourself:
+
+```sh
+go test -race -tags gtk3 ./internal/...
+```
+
+---
+
+## Known limitations
+
+- **Undo does not cover permanent deletion.** Once a file is unlinked there is
+  nothing to restore, so Mura Files does not pretend otherwise.
+- **Undo is per-session.** The history lives in memory and is cleared on quit.
+- **7z and rar** need `p7zip-full` (or `7z`/`unar`) installed; scanning those
+  archives without it reports a clear error.
+- **Video and audio previews** depend on GStreamer codecs provided by the
+  distribution.
+- **Mount/unmount** is delegated to `udisksctl`/`umount`, so it inherits their
+  policy (and polkit prompts) rather than implementing raw mount calls.
 
 ---
 
@@ -195,6 +270,8 @@ Thumbnails are cached in `~/.cache/mura-files/thumbnails` and trimmed to 512 MiB
 **`Package gtk4 was not found`** — you are building without the `gtk3` tag on a distribution that only has GTK 3. Use `wails3 build EXTRA_TAGS=gtk3`, or just `wails3 build`, which enables it by default.
 
 **`libwebkit2gtk-4.1` not found** — install the WebKit2GTK 4.1 development package for your distribution (see [Requirements](#requirements)).
+
+**The free-space number looks wrong** — it is read with the same arithmetic as `df`, so compare against `df /path`. Note that *available* is smaller than *free* on filesystems that reserve blocks for root (5% on ext4 by default); the status bar shows the available figure because that is what you can actually write.
 
 **No thumbnails in the grid** — check that the file type is supported (PNG, JPEG, GIF, BMP, WebP, TIFF) and that *Settings → Appearance → Thumbnails in grid view* is on.
 
